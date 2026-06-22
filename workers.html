@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kalinga Naturals — Operations</title>
+<title>Kalinga Naturals — Workers</title>
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -139,7 +139,7 @@
 
 <div class="topbar">
   <div class="brand"><span class="dot"></span>
-    <div>Kalinga Naturals<small>OPERATIONS</small></div>
+    <div>Kalinga Naturals<small>WORKERS</small></div>
   </div>
   <input id="fxRate" type="hidden" value="42">
   <div class="role-switch no-print"><span class="muted" style="font-size:13px">Production view</span></div>
@@ -297,6 +297,7 @@ let STATE = {
   ingredientCosts:{}, // override php cost per gram-unit (optional)
   deliveries:[],  // {id, ingredient, grams, phpCost, date}
   shipDates:{},   // {orderId: 'YYYY-MM-DD'} ship-by dates (synced via production state)
+  stock:{},       // {productKey: finished bars on hand} (synced)
 };
 
 let CURRENT_TAB = 'dash';
@@ -321,68 +322,48 @@ function emptyMini(t){return `<div class="empty"><div class="big">◇</div>${t}<
 /* ============================================================
    ORDERS
    ============================================================ */
+const BATCH_SIZE=15, RESTOCK_BELOW=15;
+function createStockBatch(pk){
+  STATE.batches.push({id:uid(),product:pk,qty:BATCH_SIZE,status:'make',orderId:null,
+    started:null,curedAt:null,madeBy:'',minutes:0,created:today()});
+  saveState();toast('Batch added to make list');renderOrders();renderTabs();
+}
 function renderOrders(){
-  const itemInputs = PROD_KEYS.map(pk=>`
-    <label class="fld" style="min-width:130px;flex:1">
-      <span>${PRODUCTS[pk].name.replace(' Bar','')}</span>
-      <input type="number" min="0" value="0" id="ord_${pk}" data-pk="${pk}">
-    </label>`).join('');
-
   const open=STATE.orders.filter(o=>o.status!=='shipped');
-  const rows = STATE.orders.slice().reverse().map(o=>{
-    const items=Object.entries(o.items).filter(([k,q])=>q>0)
-      .map(([k,q])=>`${q}× ${PRODUCTS[k].name.split(' ')[0]}`).join(', ');
-    return `<tr>
-      <td><strong>${o.customer}</strong><div class="muted">${o.created}</div>${(STATE.shipDates&&STATE.shipDates[o.id])?`<div class="muted">\ud83d\udce6 ship by ${STATE.shipDates[o.id]}</div>`:''}</td>
-      <td>${items}<div class="muted">${orderBars(o)} bars</div></td>
-      <td><span class="pill ${o.status}">${o.status}</span></td>
-      <td class="right no-print">
-        ${o.status==='new'?`<button class="btn sm teal" onclick="queueOrder('${o.id}')">Queue to make</button>`:''}
-        ${o.status==='make'?`<button class="btn sm ghost" onclick="backOrder('${o.id}')">← Back</button>`:''}
-        <button class="btn sm ghost" onclick="setShipDate('${o.id}')" title="Set ship-by date">\ud83d\udcc5</button>
-        <button class="btn sm ghost" onclick="delOrder('${o.id}')">✕</button>
-      </td></tr>`;
+  const assigned={};
+  open.forEach(o=>Object.entries(o.items).forEach(([k,q])=>{ if(q>0) assigned[k]=(assigned[k]||0)+q; }));
+  const nextShip=(STATE.settings&&STATE.settings.nextShip)||'';
+  const queue=[];
+  const rows=PROD_KEYS.map(pk=>{
+    const ord=assigned[pk]||0, stk=(STATE.stock&&STATE.stock[pk])||0, avail=stk-ord;
+    const target=ord+RESTOCK_BELOW;
+    const inFlight=(STATE.batches||[]).filter(b=>b.product===pk && b.status!=='shipped' && !b.orderId).length*BATCH_SIZE;
+    const toCreate = (stk+inFlight)<target ? Math.ceil((target-stk-inFlight)/BATCH_SIZE) : 0;
+    if(ord===0 && stk===0 && toCreate===0) return '';
+    if(toCreate>0) queue.push({pk, n:toCreate, urgent: stk<ord, short: Math.max(0,ord-stk)});
+    return `<tr><td><strong>${PRODUCTS[pk].name.replace(' Bar','')}</strong></td>
+      <td class="right">${ord}</td><td class="right">${stk}</td>
+      <td class="right ${avail<0?'low':''}">${avail}${avail<0?' ⚠':''}</td></tr>`;
   }).join('');
-
+  queue.sort((a,b)=> (b.urgent-a.urgent) || (b.short-a.short));
+  const qrows=queue.map(x=>`<tr>
+      <td><strong>${PRODUCTS[x.pk].name.replace(' Bar','')}</strong></td>
+      <td>${x.urgent?`<span class="pill new">order short ${x.short}</span>`:`<span class="pill make">restock</span>`}</td>
+      <td class="right">${x.n} batch${x.n>1?'es':''} × ${BATCH_SIZE}</td>
+      <td class="right no-print"><button class="btn sm teal" onclick="createStockBatch('${x.pk}')">+ Create batch</button></td></tr>`).join('');
   $('#view-orders').innerHTML=`
     <div class="page-head"><div>
-      <h2>Orders</h2><p>Enter orders as they arrive. Queue them to generate the make list.</p>
+      <h2>Received Orders</h2>
+      <p>${nextShip?`Next shipment to Canada: <strong>${nextShip}</strong>`:'Orders received from the website, summarised by bar.'}</p>
     </div></div>
-    <div class="card no-print"><h3>New order</h3>
-      <div class="row">
-        <label class="fld"><span>First name</span><input id="ord_first" placeholder="Maria"></label>
-        <label class="fld"><span>Last name</span><input id="ord_last" placeholder="Santos"></label>
-      </div>
-      <div class="row">
-        <label class="fld"><span>Email (optional)</span><input id="ord_email" placeholder="name@email.com"></label>
-        <label class="fld"><span>Phone (optional)</span><input id="ord_phone" placeholder="(555) 123-4567"></label>
-      </div>
-      <label class="fld"><span>Street address</span><input id="ord_street" placeholder="123 Main St"></label>
-      <div class="row">
-        <label class="fld"><span>Apt / unit</span><input id="ord_line2" placeholder="optional"></label>
-        <label class="fld"><span>City</span><input id="ord_city" placeholder="Burlington"></label>
-      </div>
-      <div class="row">
-        <label class="fld"><span>Province / State</span><input id="ord_prov" placeholder="ON"></label>
-        <label class="fld"><span>Postal / ZIP</span><input id="ord_postal" placeholder="L7M 0P5"></label>
-        <label class="fld"><span>Country</span><input id="ord_country" placeholder="Canada"></label>
-      </div>
-      <div class="row">
-        <label class="fld"><span>Ship by (optional)</span><input id="ord_shipby" type="date"></label>
-      </div>
-      <div class="row owner-only">
-        <label class="fld"><span>Agreed price (optional, CAD)</span><input id="ord_agreed" type="number" min="0" step="0.01" placeholder="blank = list price"></label>
-      </div>
-      <div class="divider"></div>
-      <p class="muted" style="margin-bottom:8px">Quantities</p>
-      <div class="row">${itemInputs}</div>
-      <button class="btn gold" style="margin-top:12px" onclick="addOrder()">+ Add order</button>
-    </div>
     <div class="card">
-      <h3>All orders <span class="muted">(${open.length} open)</span></h3>
-      ${STATE.orders.length?`<table><thead><tr><th>Customer</th><th>Items</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-        :`<div class="empty"><div class="big">◇</div>No orders yet. Add your first one above.</div>`}
-    </div>`;
+      <h3>Bars ordered vs stock <span class="muted">(${open.length} order${open.length===1?'':'s'})</span></h3>
+      ${rows?`<table><thead><tr><th>Bar</th><th class="right">Ordered</th><th class="right">In stock</th><th class="right">Available</th></tr></thead><tbody>${rows}</tbody></table>`
+        :`<div class="empty"><div class="big">◇</div>No orders received yet.</div>`}
+    </div>
+    ${queue.length?`<div class="card"><h3>Batches to make <span class="muted">(priority order)</span></h3>
+      <table><thead><tr><th>Bar</th><th>Reason</th><th class="right">Make</th><th class="no-print"></th></tr></thead><tbody>${qrows}</tbody></table>
+      <p class="muted" style="margin-top:8px">Order shortfalls first, then restock to keep ${RESTOCK_BELOW}+ of each on hand. Each batch makes ${BATCH_SIZE} bars.</p></div>`:''}`;
 }
 function addOrder(){
   const gv=id=>{const e=$('#'+id);return e?e.value.trim():'';};
@@ -512,7 +493,7 @@ function unshipOrder(id){
 }
 function markReady(id){
   const b=STATE.batches.find(x=>x.id===id);if(!b)return;
-  b.status='ready';saveState();toast('Batch ready to ship');renderMake();renderTabs();
+  b.status='ready'; STATE.stock=STATE.stock||{}; STATE.stock[b.product]=(STATE.stock[b.product]||0)+(b.qty||0); saveState();toast('Batch ready — '+(b.qty||0)+' bars to stock');renderMake();renderTabs();
 }
 
 /* ============================================================
@@ -718,7 +699,7 @@ function shipOrder(id){
   const o=STATE.orders.find(x=>x.id===id);if(!o)return;
   o.status='shipped';o.shipped=today();
   patchOrderOnBackend(id,{status:'shipped',shipped:o.shipped});   // keep server in sync
-  // consume ready batches tied to this order
+  STATE.stock=STATE.stock||{}; Object.entries(o.items).forEach(([k,q])=>{ STATE.stock[k]=Math.max(0,(STATE.stock[k]||0)-q); });
   STATE.batches.filter(b=>b.orderId===id).forEach(b=>b.status='shipped');
   saveState();toast('Marked shipped — donation counter updated');renderShip();renderTabs();
 }
@@ -779,6 +760,8 @@ async function loadState(){
       if(STATE.inventory[ing.key]===undefined) STATE.inventory[ing.key]=0;
     }));
   }
+  if(!STATE.stock) STATE.stock={};
+  PROD_KEYS.forEach(pk=>{ if(STATE.stock[pk]===undefined) STATE.stock[pk]=0; });
 }
 
 function rerenderCurrent(){
@@ -821,12 +804,12 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
