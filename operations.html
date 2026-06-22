@@ -188,6 +188,7 @@
   <div class="view" id="view-make"></div>
   <!-- PRODUCTION -->
   <div class="view" id="view-prod"></div>
+  <div class="view" id="view-curing"></div>
   <!-- INVENTORY -->
   <div class="view" id="view-inv"></div>
   <!-- SHIPMENTS -->
@@ -535,6 +536,41 @@ function delOrder(id){
 /* ============================================================
    MAKE LIST  (aggregated demand)
    ============================================================ */
+const BATCH_SIZE=60;
+function producedMap(){
+  const m={}; const c=(STATE.exportBox&&STATE.exportBox.contents)||{};
+  Object.entries(c).forEach(([k,q])=>m[k]=(m[k]||0)+q);
+  (STATE.exportLog||[]).forEach(b=>Object.entries(b.contents||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q));
+  return m;
+}
+function computeNeed(){
+  const open=STATE.orders.filter(o=>o.status!=='shipped');
+  const ordered={}; open.forEach(o=>Object.entries(o.items).forEach(([k,q])=>{ if(q>0) ordered[k]=(ordered[k]||0)+q; }));
+  const made=producedMap();
+  const wip={}; STATE.batches.filter(b=>b.status==='make'||b.status==='cure').forEach(b=>{ wip[b.product]=(wip[b.product]||0)+(b.qty||0); });
+  const per={};
+  PROD_KEYS.forEach(pk=>{ const ord=ordered[pk]||0, md=made[pk]||0, w=wip[pk]||0; const need=Math.max(0,ord-md-w);
+    per[pk]={ordered:ord,made:md,wip:w,needBars:need,batches:Math.ceil(need/BATCH_SIZE)}; });
+  return per;
+}
+function totalBatchesNeeded(){ const p=computeNeed(); return PROD_KEYS.reduce((s,pk)=>s+p[pk].batches,0); }
+function renderCuring(){
+  const curing=STATE.batches.filter(b=>b.status==='cure');
+  const readyDate=b=>b.curedAt?new Date(new Date(b.curedAt).getTime()+PRODUCTS[b.product].cure*86400000).toISOString().slice(0,10):'—';
+  const isDone=b=>daysSince(b.curedAt||b.started||b.created)>=PRODUCTS[b.product].cure;
+  const rows=curing.slice().sort((a,b)=>{const da=isDone(a),db=isDone(b);if(da!==db)return da?-1:1;return (a.rack||0)-(b.rack||0);}).map(b=>{
+    const total=PRODUCTS[b.product].cure, d=daysSince(b.curedAt||b.started||b.created), done=d>=total;
+    return `<tr><td><strong>Rack ${b.rack||'—'}</strong><div class="muted">${b.num||''}</div></td>
+      <td>${PRODUCTS[b.product].name.replace(' Bar','')}<div class="muted">${b.qty} bars · ${b.madeBy||'—'}</div></td>
+      <td>${Math.min(d,total)}/${total} days${done?' ✓':''}<div class="muted">ready ${readyDate(b)}</div></td></tr>`;
+  }).join('');
+  const doneCount=curing.filter(isDone).length;
+  $('#view-curing').innerHTML=`
+    <div class="page-head"><div><h2>Curing</h2><p>Batches curing in the Philippines workshop and when each is ready. The team marks them ready on the tablet.</p></div></div>
+    <div class="card"><h3>Curing now <span class="muted">(${curing.length}${doneCount?`, ${doneCount} ready`:''})</span></h3>
+      ${curing.length?`<table><thead><tr><th>Rack</th><th>Batch</th><th>Cure</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Nothing curing right now.</div>`}
+    </div>`;
+}
 function neededBatches(){ return STATE.batches.filter(b=>b.status==='make'); }
 function renderMake(){
   // aggregate make demand by product
@@ -627,52 +663,27 @@ function markReady(id){
 let PRODUCTION_FOCUS=null;
 let TIMER={int:null,remain:0,stepIndex:-1,product:null};
 function renderProd(){
-  const focus=PRODUCTION_FOCUS||PROD_KEYS[0];
-  const p=PRODUCTS[focus];
-  const picker=PROD_KEYS.map(pk=>`<option value="${pk}" ${pk===focus?'selected':''}>${PRODUCTS[pk].name}</option>`).join('');
-  const makeBatches=STATE.batches.filter(b=>b.status==='make'&&b.product===focus);
-  const totalQty=makeBatches.reduce((s,b)=>s+b.qty,0);
-
-  $('#view-prod').innerHTML=`
-    <div class="page-head"><div>
-      <h2>Production</h2><p>Pick a soap, follow the steps, use the timer. Log who made it and how long it took.</p>
-    </div></div>
-    <div class="grid g2">
-      <div>
-        <div class="card no-print">
-          <label class="fld"><span>Which soap are you making?</span>
-            <select id="prodPick" onchange="pickProd(this.value)">${picker}</select></label>
-          ${totalQty?`<p class="muted">${totalQty} bars queued for this product.</p>`:`<p class="muted">No orders queued for this one — you can still make stock.</p>`}
-        </div>
-        <div class="timer-box no-print" id="timerBox">
-          <div class="step" id="timerStep">Ready</div>
-          <div class="time" id="timerTime">00:00</div>
-          <div style="margin-top:14px;display:flex;gap:8px;justify-content:center">
-            <button class="btn gold sm" id="timerStart" onclick="timerToggle()">Start step timer</button>
-            <button class="btn ghost sm" style="color:#fff;border-color:#3a5d7e" onclick="timerReset()">Reset</button>
-          </div>
-        </div>
+  const need=computeNeed();
+  const order=PROD_KEYS.slice().sort((a,b)=> need[b].batches-need[a].batches || need[b].needBars-need[a].needBars);
+  let first=false;
+  const cards=order.map(pk=>{
+    const n=need[pk]; const P=PRODUCTS[pk];
+    let pill;
+    if(n.batches>0 && !first){ pill='<span class="pill new">★ Make first</span>'; first=true; }
+    else if(n.batches>0){ pill='<span class="pill make">to make</span>'; }
+    else { pill='<span class="pill ready">caught up ✓</span>'; }
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div><h3 style="margin-bottom:2px">${P.name.replace(' Bar','')}</h3>
+          <div class="muted">${BATCH_SIZE} bars/batch · cure ${P.cure} days</div></div>${pill}
       </div>
-      <div class="card">
-        <h3>${p.name}</h3>
-        <div class="muted" style="margin-bottom:6px">Makes a ${p.weight}g bar · cure ${p.cure} days · ${p.ingredients.length} ingredients</div>
-        <ol class="step-list">
-          ${p.steps.map((s,i)=>`<li><span class="n">${i+1}</span>
-            <div style="flex:1">${s.t}
-            ${s.timer?`<button class="btn sm ghost no-print" style="margin-left:6px" onclick="loadTimer(${i},${s.timer})">⏱ ${Math.round(s.timer/60)}m</button>`:''}
-            </div></li>`).join('')}
-        </ol>
-        <div class="divider"></div>
-        <div class="row no-print">
-          <label class="fld"><span>Made by</span><input id="madeBy" placeholder="Your name"></label>
-          <label class="fld"><span>Qty made</span><input id="madeQty" type="number" value="${totalQty||1}" min="1"></label>
-          <label class="fld"><span>Minutes spent</span><input id="madeMin" type="number" value="0" min="0"></label>
-        </div>
-        <button class="btn teal no-print" onclick="logProduction('${focus}')">Log batch → start curing</button>
-        <p class="muted" style="margin-top:8px">Logging deducts ingredients from inventory and starts the cure clock.</p>
-      </div>
+      <div style="font-family:Georgia,serif;font-size:26px;font-weight:700;color:${n.batches>0?'var(--navy)':'#8a97a3'};margin:8px 0 2px">${n.batches>0?`${n.batches} batch${n.batches>1?'es':''} to make`:'Caught up ✓'}</div>
+      <div class="muted">${n.ordered} ordered · ${n.made} made · ${n.wip} curing${n.batches>0?` · ${n.needBars} bars short`:''}</div>
     </div>`;
-  updateTimerDisplay();
+  }).join('');
+  $('#view-prod').innerHTML=`
+    <div class="page-head"><div><h2>Production</h2><p>What the workshop needs to make, in priority order (each batch is ${BATCH_SIZE} bars). The team makes these on the tablet.</p></div></div>
+    ${cards}`;
 }
 function pickProd(pk){PRODUCTION_FOCUS=pk;renderProd();}
 function loadTimer(stepIndex,secs){
@@ -934,7 +945,7 @@ async function loadState(){
 
 function rerenderCurrent(){
   renderTabs();
-  const m = {dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
+  const m = {dash:renderDash,orders:renderOrders,make:renderProd,prod:renderProd,curing:(typeof renderCuring==='function'?renderCuring:null),
     inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:null),suppliers:(typeof renderSuppliers==='function'?renderSuppliers:null),restock:(typeof renderRestock==='function'?renderRestock:null),work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null)};
   const f = m[CURRENT_TAB]; if(f) f();
 }
@@ -1622,9 +1633,9 @@ const TABS = [
   {id:'dash', label:'Dashboard', owner:true},
   {id:'work', label:'Work in progress', owner:true},
   {id:'orders', label:'Orders'},
-  {id:'make', label:'Make List'},
   {id:'prod', label:'Production'},
   {id:'inv', label:'Inventory'},
+  {id:'curing', label:'Curing'},
   {id:'ship', label:'Shipments'},
   {id:'team', label:'Team', owner:true},
   {id:'suppliers', label:'Suppliers', owner:true},
@@ -1637,16 +1648,14 @@ function setRole(r){
   $('#roleProd').classList.toggle('active',r==='prod');
   renderTabs();
   // if production role lands on an owner-only tab, bounce to make list
-  if(r==='prod' && CURRENT_TAB==='dash') switchTab('make');
+  if(r==='prod' && CURRENT_TAB==='dash') switchTab('prod');
   else switchTab(CURRENT_TAB);
 }
 function renderTabs(){
   const openOrders = STATE.orders.filter(o=>o.status!=='shipped').length;
-  const toMake = STATE.batches.filter(b=>b.status==='make').length
-               + neededBatches().length;
   const ready = STATE.batches.filter(b=>b.status==='ready').length;
   if(typeof checkReorder==='function') checkReorder();
-  const c = {orders:openOrders, make:toMake, ship:ready, restock:(STATE.restock||[]).length};
+  const c = {orders:openOrders, prod:(typeof totalBatchesNeeded==='function'?totalBatchesNeeded():0), curing:STATE.batches.filter(b=>b.status==='cure').length, ship:ready, restock:(STATE.restock||[]).length};
   $('#tabs').innerHTML = TABS.filter(t=>!(t.owner && ROLE!=='owner')).map(t=>{
     const badge = c[t.id]? `<span class="badge">${c[t.id]}</span>`:'';
     return `<button class="${t.id===CURRENT_TAB?'active':''}" onclick="switchTab('${t.id}')">${t.label}${badge}</button>`;
@@ -1657,7 +1666,7 @@ function switchTab(id){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const v=$('#view-'+id); if(v) v.classList.add('active');
   renderTabs();
-  ({dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
+  ({dash:renderDash,orders:renderOrders,make:renderProd,prod:renderProd,curing:(typeof renderCuring==='function'?renderCuring:()=>{}),
     inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:()=>{}),suppliers:(typeof renderSuppliers==='function'?renderSuppliers:()=>{}),restock:(typeof renderRestock==='function'?renderRestock:()=>{}),work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{})}[id]||(()=>{}))();
 }
 </script>
