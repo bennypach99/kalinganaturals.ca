@@ -176,6 +176,8 @@
   <div class="view owner-only" id="view-work"></div>
   <!-- SETTINGS (owner) -->
   <div class="view owner-only" id="view-settings"></div>
+  <!-- TEAM (owner) -->
+  <div class="view owner-only" id="view-team"></div>
 </div>
 
 <div id="conflictModal" class="cmodal" style="display:none"></div>
@@ -312,6 +314,13 @@ let STATE = {
   stock:{},       // finished-bar stock (managed in workers app; synced)
   workers:{},     // {cardId:name} legacy (synced)
   roster:[],      // [{id,name,pin,cardId}] worker roster (managed on the workshop tablet; synced)
+  suppliers:[],   // [{id,name,phone,address,email,account,note,items:[{key,packSize,minOrder}]}] (synced)
+  restock:[],     // [{id,key,supplierId,reason,created}] items to reorder (synced)
+  pos:[],         // [{id,num,supplierId,items:[{key,qty,packs}],status,created,sent,received}] (synced)
+  reorder:{},     // {supplyKey: reorder level} (synced)
+  itemSupplier:{},// {supplyKey: supplierId} chosen supplier per item (synced)
+  supplies:{},    // {key:{name,qty}} non-ingredient supplies e.g. labels/wrap (synced)
+  uom:{},         // {supplyKey: unit of measure} (synced)
   shifts:[],      // punch records (managed in workers app; synced)
   exportBox:{contents:{},started:''}, exportLog:[], boxStock:0, // export box (workers app; synced)
 };
@@ -854,7 +863,7 @@ function cacheLocal(){ try{ const s=JSON.stringify(STATE); localStorage.setItem(
 function pruneSnaps(){ try{ const ks=Object.keys(localStorage).filter(k=>k.indexOf(SKEY+':day:')===0).sort(); while(ks.length>7) localStorage.removeItem(ks.shift()); }catch(e){} }
 let stateVersion = loadSync().stateVersion || 0;
 
-async function saveState(){ cacheLocal(); schedulePush(); }
+async function saveState(){ stampChanges(); cacheLocal(); schedulePush(); }
 async function loadState(){
   try{ const r = localStorage.getItem(SKEY); if(r){ STATE = Object.assign(STATE, JSON.parse(r)); } }catch(e){}
   if(Object.keys(STATE.inventory).length===0){
@@ -867,7 +876,7 @@ async function loadState(){
 function rerenderCurrent(){
   renderTabs();
   const m = {dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
-    inv:renderInv,ship:renderShip,work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null)};
+    inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:null),work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null)};
   const f = m[CURRENT_TAB]; if(f) f();
 }
 
@@ -904,64 +913,103 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies, uom:STATE.uom}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies','uom'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
 function snapshot(){ const o={}; SYNC_AREAS.forEach(a=>{ o[a]=JSON.stringify(STATE[a]); }); return o; }
-function mergeAreas(base, sv){
-  const decisions={}, conflicts=[];
-  SYNC_AREAS.forEach(a=>{
-    const mine=JSON.stringify(STATE[a]);
-    const theirs=(sv && sv[a]!==undefined)?JSON.stringify(sv[a]):undefined;
-    const b=base[a];
-    if(theirs===undefined){ decisions[a]='mine'; return; }
-    if(mine===theirs){ decisions[a]='same'; return; }
-    const mineCh=mine!==b, theirsCh=theirs!==b;
-    if(mineCh && theirsCh){ conflicts.push(a); decisions[a]='conflict'; }
-    else if(theirsCh){ decisions[a]='theirs'; }
-    else { decisions[a]='mine'; }
+// ---- timestamped per-record merge (newest record wins; offline edits survive) ----
+const LIST_AREAS = ['batches','shifts','deliveries','exportLog','roster','suppliers','restock','pos'];
+function _isObj(x){ return x && typeof x==='object' && !Array.isArray(x); }
+function _eq(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
+function _stripU(r){ if(!_isObj(r)) return r; const o={}; for(const k in r){ if(k!=='_u') o[k]=r[k]; } return o; }
+function unionByU(mine, theirs, base){
+  const bm={}; (Array.isArray(base)?base:[]).forEach(r=>{ if(r&&r.id!=null) bm[r.id]=JSON.stringify(_stripU(r)); });
+  const mm={}, tm={}; (mine||[]).forEach(r=>{ if(r&&r.id!=null) mm[r.id]=r; }); (theirs||[]).forEach(r=>{ if(r&&r.id!=null) tm[r.id]=r; });
+  const ids=[...new Set([...Object.keys(mm),...Object.keys(tm)])];
+  const out=[];
+  ids.forEach(id=>{
+    const b=bm[id], mr=mm[id], tr=tm[id];
+    if(mr&&tr){ out.push(((mr._u||0) >= (tr._u||0)) ? mr : tr); }          // newest timestamp wins
+    else if(mr&&!tr){ if(!(b!==undefined && b===JSON.stringify(_stripU(mr)))) out.push(mr); }  // keep unless unchanged & deleted remotely
+    else if(tr&&!mr){ if(!(b!==undefined && b===JSON.stringify(_stripU(tr)))) out.push(tr); }  // keep unless deleted locally
   });
-  return {decisions, conflicts};
+  out.sort((a,b)=>String(a.created||'').localeCompare(String(b.created||''))||String(a.id).localeCompare(String(b.id)));
+  return out;
+}
+function mergeObj(base, mine, theirs){
+  const bo=_isObj(base)?base:{}; const out={};
+  const keys=[...new Set([...Object.keys(mine),...Object.keys(theirs)])];
+  keys.forEach(k=>{ out[k]=merge3(bo[k], mine[k], theirs[k]); });
+  return out;
+}
+function merge3(base, mine, theirs){
+  if(theirs===undefined) return mine;
+  if(mine===undefined) return theirs;
+  if(_eq(mine,theirs)) return mine;
+  if(_eq(mine,base)) return theirs;
+  if(_eq(theirs,base)) return mine;
+  if(_isObj(mine)&&_isObj(theirs)) return mergeObj(base,mine,theirs);
+  return theirs;
+}
+function mergeServer(sv){
+  let changed=false;
+  SYNC_AREAS.forEach(a=>{
+    const theirs=sv?sv[a]:undefined; if(theirs===undefined) return;
+    const mine=STATE[a];
+    let merged;
+    if(LIST_AREAS.indexOf(a)>=0 && Array.isArray(mine) && Array.isArray(theirs)){
+      const base=_syncedSnap[a]!==undefined?JSON.parse(_syncedSnap[a]):[];
+      merged=unionByU(mine, theirs, base);
+    } else {
+      const base=_syncedSnap[a]!==undefined?JSON.parse(_syncedSnap[a]):undefined;
+      merged=merge3(base, mine, theirs);
+    }
+    if(!_eq(merged, mine)){ STATE[a]=merged; changed=true; }
+  });
+  return changed;
+}
+// record stamping: mark a record _u=now when its content changes locally
+let _stampPrev=null;
+function stampInit(){ _stampPrev={}; LIST_AREAS.forEach(a=>{ const m={}; (STATE[a]||[]).forEach(r=>{ if(r&&r.id!=null) m[r.id]=JSON.stringify(_stripU(r)); }); _stampPrev[a]=m; }); }
+function stampChanges(){
+  if(!_stampPrev) stampInit();
+  const now=Date.now();
+  LIST_AREAS.forEach(a=>{ const arr=STATE[a]; if(!Array.isArray(arr)) return; const prev=_stampPrev[a]||{}, cur={};
+    arr.forEach(r=>{ if(!r||r.id==null) return; const j=JSON.stringify(_stripU(r)); cur[r.id]=j; if(prev[r.id]!==j) r._u=now; });
+    _stampPrev[a]=cur; });
 }
 async function fetchServerState(){
   try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN,'X-Kalinga-Session':ADMIN_SESSION}});
     if(!r.ok) return null; const d=await r.json(); if(!d||!d.ok) return null; return d; }catch(e){ return null; }
 }
 async function pushState(){
-  if(!BACKEND_URL || _pushing || _conflictCtx) return;
+  if(!BACKEND_URL || _pushing) return;
   _pushing=true;
   try{
     const d=await fetchServerState();
     const sv=d?d.value:null;
-    const m=mergeAreas(_syncedSnap, sv);
-    SYNC_AREAS.forEach(a=>{ if(m.decisions[a]==='theirs' && sv && sv[a]!==undefined) STATE[a]=sv[a]; });
-    if(m.conflicts.length){ _pushing=false; showConflict(m.conflicts, sv); return; }
+    mergeServer(sv);
     const r=await fetch(backendBase()+'/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify({value:productionPayload()})});
     if(r.ok){ const rd=await r.json(); if(rd&&rd.ok){ stateVersion=rd.version; const s=loadSync(); s.stateVersion=stateVersion; saveSync(s); } }
-    _syncedSnap=snapshot(); cacheLocal(); rerenderCurrent();
+    _syncedSnap=snapshot(); stampInit(); cacheLocal(); rerenderCurrent();
   }catch(e){} finally{ _pushing=false; }
 }
 async function pullState(){
-  if(!BACKEND_URL || _conflictCtx) return;
+  if(!BACKEND_URL || _pushing) return;
   const d=await fetchServerState();
   if(!d || !d.value) return;
-  const sv=d.value;
-  const m=mergeAreas(_syncedSnap, sv);
-  let changed=false;
-  SYNC_AREAS.forEach(a=>{
-    if(m.decisions[a]==='theirs' && sv[a]!==undefined){ STATE[a]=sv[a]; _syncedSnap[a]=JSON.stringify(STATE[a]); changed=true; }
-    else if(m.decisions[a]==='same'){ _syncedSnap[a]=JSON.stringify(STATE[a]); }
-  });
+  const changed=mergeServer(d.value);
   stateVersion=d.version;
-  if(m.conflicts.length){ showConflict(m.conflicts, sv); }
+  _syncedSnap=snapshot(); stampInit();
   if(changed){ cacheLocal(); rerenderCurrent(); }
 }
+
 function showConflict(areas, sv){
   _conflictCtx={areas:areas.slice(), sv:sv};
   const names={batches:'Production batches',inventory:'Inventory stock',deliveries:'Deliveries',ingredientCosts:'Ingredient costs',shipDates:'Delivery dates'};
@@ -1136,6 +1184,60 @@ function dangerReset(){
   saveState(); if(typeof pushState==='function') pushState();
   renderTabs(); switchTab('settings'); toast('All jobs cleared');
 }
+function renderTeam(){
+  const roster=(STATE.roster||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const rows=roster.map(w=>`<tr>
+    <td><strong>${w.name}</strong></td>
+    <td class="right" style="font-family:monospace">${w.pin||'<span style="color:#b3261e">none</span>'}</td>
+    <td>${w.mgr?'<span class="pill ready">manager</span>':'<span class="muted">worker</span>'}</td>
+    <td>${w.cardId?'card ✓':'<span class="muted">no card</span>'}</td>
+    <td class="right">
+      <button class="btn sm ghost" onclick="teamEdit('${w.id}')">Edit</button>
+      <button class="btn sm ghost" onclick="teamToggleMgr('${w.id}')">${w.mgr?'Unset mgr':'Make mgr'}</button>
+      <button class="btn sm ghost" onclick="teamRemove('${w.id}')">Delete</button>
+    </td></tr>`).join('');
+  $('#view-team').innerHTML=`
+    <div class="page-head"><div><h2>Team</h2><p>Add your workers and managers and set their PINs. They sign in on the workshop tablet with their name + PIN (or NFC card). Managers can unlock manager tools on the tablet.</p></div></div>
+    <div class="card"><h3>Add a person</h3>
+      <div class="row" style="gap:8px;align-items:flex-end">
+        <label class="fld" style="flex:2"><span>Name</span><input id="tm_name" placeholder="e.g. Rose Costorio"></label>
+        <label class="fld" style="flex:1"><span>PIN (4–6 digits)</span><input id="tm_pin" inputmode="numeric" maxlength="6" placeholder="1234"></label>
+        <label class="fld" style="flex:0;white-space:nowrap"><span>Manager?</span><input id="tm_mgr" type="checkbox" style="width:20px;height:20px"></label>
+        <button class="btn gold" onclick="teamAdd()">+ Add</button>
+      </div>
+    </div>
+    <div class="card"><h3>People <span class="muted">(${roster.length})</span></h3>
+      ${roster.length?`<table><thead><tr><th>Name</th><th class="right">PIN</th><th>Role</th><th>Card</th><th class="right"></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>No one yet — add your first person above.</div>`}
+      <p class="muted" style="margin-top:8px">NFC cards are linked on the workshop tablet (login screen → “Link a card”), since scanning needs the tablet.</p>
+    </div>`;
+}
+function teamAdd(){
+  const name=($('#tm_name').value||'').trim(); const pin=($('#tm_pin').value||'').trim(); const mgr=$('#tm_mgr').checked;
+  if(!name){ toast('Enter a name'); return; }
+  if(!/^\d{4,6}$/.test(pin)){ toast('PIN must be 4–6 digits'); return; }
+  if((STATE.roster||[]).some(w=>w.name.toLowerCase()===name.toLowerCase())){ toast('That name already exists'); return; }
+  STATE.roster=STATE.roster||[]; STATE.roster.push({id:uid(),name,pin,cardId:'',mgr:!!mgr});
+  saveState(); if(typeof pushState==='function') pushState(); renderTeam(); toast(name+' added');
+}
+function teamEdit(id){
+  const w=(STATE.roster||[]).find(x=>x.id===id); if(!w) return;
+  const name=prompt('Name:', w.name); if(name===null) return;
+  const pin=prompt('PIN (4–6 digits):', w.pin||''); if(pin===null) return;
+  if(name.trim()) w.name=name.trim();
+  if(/^\d{4,6}$/.test((pin||'').trim())) w.pin=pin.trim(); else if((pin||'').trim()!=='') toast('PIN unchanged — must be 4–6 digits');
+  saveState(); if(typeof pushState==='function') pushState(); renderTeam();
+}
+function teamToggleMgr(id){
+  const w=(STATE.roster||[]).find(x=>x.id===id); if(!w) return;
+  if(!w.mgr && !/^\d{4,6}$/.test(String(w.pin||''))){ toast('Set a 4–6 digit PIN first'); return; }
+  w.mgr=!w.mgr; saveState(); if(typeof pushState==='function') pushState(); renderTeam(); toast(w.name+(w.mgr?' is now a manager':' is no longer a manager'));
+}
+function teamRemove(id){
+  const w=(STATE.roster||[]).find(x=>x.id===id); if(!w) return;
+  if(!confirm('Remove '+w.name+'?')) return;
+  STATE.roster=(STATE.roster||[]).filter(x=>x.id!==id);
+  saveState(); if(typeof pushState==='function') pushState(); renderTeam();
+}
 function renderSettings(){
   const b=loadBiz();
   $('#view-settings').innerHTML=`
@@ -1175,6 +1277,7 @@ const TABS = [
   {id:'prod', label:'Production'},
   {id:'inv', label:'Inventory'},
   {id:'ship', label:'Shipments'},
+  {id:'team', label:'Team', owner:true},
   {id:'settings', label:'Settings', owner:true},
 ];
 function setRole(r){
@@ -1203,6 +1306,6 @@ function switchTab(id){
   const v=$('#view-'+id); if(v) v.classList.add('active');
   renderTabs();
   ({dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
-    inv:renderInv,ship:renderShip,work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{})}[id]||(()=>{}))();
+    inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:()=>{}),work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{})}[id]||(()=>{}))();
 }
 </script>
