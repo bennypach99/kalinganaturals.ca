@@ -299,6 +299,9 @@ let STATE = {
   ingredientCosts:{}, // override php cost per gram-unit (optional)
   deliveries:[],  // {id, ingredient, grams, phpCost, date}
   shipDates:{},   // {orderId: 'YYYY-MM-DD'} ship-by dates (synced via production state)
+  stock:{},       // finished-bar stock (managed in workers app; synced)
+  workers:{},     // {cardId:name} (managed in workers app; synced)
+  shifts:[],      // punch records (managed in workers app; synced)
 };
 
 let CURRENT_TAB = 'dash';
@@ -882,12 +885,12 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
