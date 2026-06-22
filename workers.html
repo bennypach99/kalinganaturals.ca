@@ -145,19 +145,9 @@
   .pm-box{background:#fff;border-radius:12px;padding:26px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <!-- GENERATED FROM operations.html by src/genworkers.py - DO NOT EDIT BY HAND -->
 <body data-role="prod">
-<div id="adminGate" style="position:fixed;inset:0;z-index:600;background:#12283f;color:#F8F4EE;display:none;align-items:center;justify-content:center;text-align:center;padding:20px">
-  <div style="background:#fff;color:#1A3A5C;border-radius:14px;padding:30px 26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.45)">
-    <img src="images/logo-stacked.png" alt="Kalinga Naturals" style="height:64px;margin-bottom:10px" onerror="this.style.display='none'">
-    <h2 style="margin:6px 0 2px;font-family:Georgia,serif;color:#1A3A5C">Manager sign-in</h2>
-    <p style="color:#6b7a88;font-size:14px;margin:0 0 18px">Sign in to unlock this app for the team.</p>
-    <div id="gsiButton" style="display:flex;justify-content:center"></div>
-    <p id="adminErr" style="color:#b3261e;font-size:13px;margin-top:14px;display:none"></p>
-  </div>
-</div>
 <div id="loginScreen" onclick="activateReader()">
   <div class="login-box">
     <img src="images/logo-stacked.png" alt="Kalinga Naturals" class="login-logo" onerror="this.style.display='none'">
@@ -179,6 +169,23 @@
     <div id="cardBody"></div>
   </div>
 </div>
+<div id="supForm" class="pm" style="display:none">
+  <div class="pm-box" style="max-width:560px;text-align:left">
+    <h3 id="supFormTitle" style="margin:0 0 12px">Add supplier</h3>
+    <div class="row" style="gap:8px">
+      <label class="fld" style="flex:2"><span>Name</span><input id="sf_name" placeholder="e.g. Manila Oils Trading"></label>
+      <label class="fld" style="flex:1"><span>Phone</span><input id="sf_phone"></label>
+    </div>
+    <label class="fld"><span>Email</span><input id="sf_email" type="email"></label>
+    <label class="fld"><span>Address</span><input id="sf_addr"></label>
+    <label class="fld"><span>Account / ID #</span><input id="sf_acct"></label>
+    <label class="fld"><span>Note</span><input id="sf_note" placeholder="terms, contact person, etc."></label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeSupplierForm()">Close</button>
+      <button class="btn gold" onclick="saveSupplierForm()">Save</button>
+    </div>
+  </div>
+</div>
 <div id="mgrModal" class="pm" style="display:none">
   <div class="pm-box">
     <h3 style="margin-bottom:6px">Manager PIN</h3>
@@ -186,7 +193,8 @@
     <label class="fld" style="text-align:left;margin-top:10px"><span>PIN</span>
       <input id="mgrPin" type="password" inputmode="numeric" maxlength="6" placeholder="****" onkeydown="if(event.key==='Enter')submitMgrPin()"></label>
     <p id="mgrErr" style="color:#b3261e;font-size:13px;margin-top:10px;display:none"></p>
-    <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+    <p class="muted" style="text-align:center;margin-top:8px;font-size:13px"><a href="#" onclick="forgotPinUnlock();return false;">Forgot PIN?</a></p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
       <button class="btn ghost" onclick="closeMgrModal()">Cancel</button>
       <button class="btn gold" onclick="submitMgrPin()">Unlock</button>
     </div>
@@ -432,7 +440,7 @@ function emptyMini(t){return `<div class="empty"><div class="big">◇</div>${t}<
 /* ============================================================
    ORDERS
    ============================================================ */
-const BATCH_SIZE=15, RESTOCK_BELOW=15;
+const BATCH_SIZE=60, RESTOCK_BELOW=15;
 function createStockBatch(pk){
   STATE.batches.push({id:uid(),num:batchNum(),product:pk,qty:BATCH_SIZE,status:'make',orderId:null,
     started:null,curedAt:null,madeBy:'',minutes:0,created:today()});
@@ -588,9 +596,16 @@ function unshipOrder(id){
   STATE.batches.filter(b=>b.orderId===id&&b.status==='shipped').forEach(b=>b.status='ready');
   saveState();toast('Un-shipped — back to production');renderShip();renderTabs();
 }
+function curingDone(b){ return daysSince(b.curedAt||b.started||b.created)>=PRODUCTS[b.product].cure; }
+function markAllReady(){
+  const due=STATE.batches.filter(b=>b.status==='cure' && curingDone(b));
+  if(!due.length){ toast('Nothing is fully cured yet'); return; }
+  due.forEach(b=>{ b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); });
+  saveState(); if(typeof pushState==='function')pushState(); toast(due.length+' batch'+(due.length>1?'es':'')+' marked ready'); rerenderCurrent();
+}
 function markReady(id){
   const b=STATE.batches.find(x=>x.id===id);if(!b)return;
-  b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); saveState();toast('Batch ready — '+(b.qty||0)+' bars added to the Canada box');renderProd();renderTabs();
+  b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); saveState(); if(typeof pushState==='function')pushState(); toast('Batch ready — '+(b.qty||0)+' bars to the box'); rerenderCurrent();
 }
 
 /* ============================================================
@@ -710,18 +725,16 @@ function renderProd(){
         ${n.batches>0?`${n.batches} batch${n.batches>1?'es':''} to make`:'Caught up ✓'}</div>
       <div class="muted">${n.batches>0?`${n.needBars} bars needed for open orders`:`${n.ordered} ordered · ${n.made} made · ${n.wip} curing`}</div>
       ${canOne?'':`<p class="muted" style="color:var(--bad);margin-top:8px">Not enough ingredients for a batch — log a delivery in Inventory.</p>`}
-      <div class="no-print" style="display:flex;gap:8px;align-items:center;margin-top:12px">
-        <select id="mk-${pk}" ${canOne?'':'disabled'}>${selOpts}</select>
-        <button class="btn teal" ${canOne?'':'disabled'} onclick="startMakeFromCard('${pk}')">▶ Start guided make</button>
+      <div class="no-print" style="margin-top:12px">
+        <button class="btn teal" ${canOne?'':'disabled'} onclick="startWizard('${pk}',1)">▶ Start guided make · ${BATCH_SIZE} bars</button>
       </div>
-      ${(maxByStock>0&&maxByStock<REC_MAX_BATCHES)?`<p class="muted" style="margin-top:6px">Stock allows up to ${maxByStock} batch${maxByStock>1?'es':''} right now.</p>`:''}
     </div>`;
   }).join('');
   $('#view-prod').innerHTML=`
     <div class="page-head"><div>
-      <h2>Production</h2><p>What to make, in priority order. Choose how many batches, then follow the guided steps — setup, making and cleanup are timed.</p>
+      <h2>Production</h2><p>What to make, in priority order. Each batch is ${BATCH_SIZE} bars. Tap Start to follow the timed guided steps.</p>
     </div></div>
-    <div class="grid g2">${cards}</div>`;
+    ${cards}`;
 }
 function renderWizard(){
   const phases=wizPhases(); const steps=phases[WIZARD.phase][1]; const stepText=steps[WIZARD.step];
@@ -883,7 +896,8 @@ function renderInv(){
 function renderCuring(){
   const curing=STATE.batches.filter(b=>b.status==='cure');
   const readyDate=b=>b.curedAt?new Date(new Date(b.curedAt).getTime()+PRODUCTS[b.product].cure*86400000).toISOString().slice(0,10):'—';
-  const crows=curing.slice().sort((a,b)=>(a.rack||0)-(b.rack||0)).map(b=>{
+  const doneCount=curing.filter(curingDone).length;
+  const crows=curing.slice().sort((a,b)=>{const da=curingDone(a),db=curingDone(b); if(da!==db) return da?-1:1; return (a.rack||0)-(b.rack||0);}).map(b=>{
     const total=PRODUCTS[b.product].cure, d=daysSince(b.curedAt||b.started||b.created), done=d>=total;
     return `<tr>
       <td><strong>Rack ${b.rack||'—'}</strong><div class="muted">${b.num||''}</div></td>
@@ -896,7 +910,7 @@ function renderCuring(){
     <div class="page-head"><div>
       <h2>Curing</h2><p>Every curing shelf with its batch number, QR code, and cure-ready date. Mark a batch ready once its cure is complete.</p>
     </div></div>
-    <div class="card"><h3>Curing shelves <span class="muted">(${curing.length})</span></h3>
+    <div class="card"><h3>Curing shelves <span class="muted">(${curing.length}${doneCount?`, ${doneCount} ready to mark`:''})</span></h3>${doneCount?`<button class="btn sm gold no-print" style="margin-bottom:10px" onclick="markAllReady()">✓ Mark all ${doneCount} ready</button>`:''}
       ${curing.length?`<table><thead><tr><th>Rack</th><th>Batch</th><th>Cure</th><th>QR</th><th class="no-print"></th></tr></thead><tbody>${crows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Nothing curing right now.</div>`}
     </div>
     <div class="view" id="curingLabel"></div>`;
@@ -1027,8 +1041,8 @@ function renderShip(){
         <div style="height:100%;width:${pct}%;background:${full?'var(--ok)':'var(--gold)'}"></div></div>
       ${total?`<table><thead><tr><th>Bar</th><th class="right">In box</th></tr></thead><tbody>${crows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Box is empty. Mark batches ready to fill it.</div>`}
       <div class="no-print" style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn gold" onclick="printExportLabel()" ${full?'':'disabled'}>🖨 Print box label${full?'':' — fills at '+BOX_CAP}</button>
-        <button class="btn teal" onclick="shipExportBox()" ${full?'':'disabled'}>Ship box → Canada</button>
+        <button class="btn gold" onclick="printExportLabel()" ${total?'':'disabled'}>🖨 Print box label</button>
+        <button class="btn teal" onclick="shipExportBox()" ${total?'':'disabled'}>Ship box → Canada</button>
       </div>
       ${full?`<p class="muted" style="margin-top:8px;color:var(--ok)">✓ Box is full — print the label and ship it.</p>`:`<p class="muted" style="margin-top:8px">${BOX_CAP-total} more bars to fill the box.</p>`}
     </div>
@@ -1350,6 +1364,7 @@ function punchIn(w){
   const sh={id:uid(),workerId:w.id,cardId:w.cardId||'',name:w.name,in:new Date().toISOString(),out:null,mins:0};
   STATE.shifts.push(sh);
   ACTIVE={workerId:w.id,name:w.name,cardId:w.cardId||'',shiftId:sh.id};
+  if(w.mgr && w.pin){ MANAGER=true; MGR_USER=w; }   // managers don't need to unlock again
   document.body.classList.add('in');
   const el=document.getElementById('activeWorker'); if(el) el.textContent='● '+w.name;
   saveState(); if(typeof pushState==='function') pushState(); renderTabs(); switchTab(START_TAB);
@@ -1362,7 +1377,7 @@ function confirmPunchOut(){
   const sh=(STATE.shifts||[]).find(x=>x.id===ACTIVE.shiftId);
   if(sh){ sh.out=new Date().toISOString(); sh.mins=Math.max(0,Math.round((new Date(sh.out)-new Date(sh.in))/60000)); }
   saveState(); if(typeof pushState==='function') pushState();
-  ACTIVE=null; const w=document.getElementById('activeWorker'); if(w) w.textContent='';
+  ACTIVE=null; MANAGER=false; MGR_USER=null; const w=document.getElementById('activeWorker'); if(w) w.textContent='';
   closePunch(); document.body.classList.remove('in'); toast('Punched out');
 }
 /* ---- worker sign-in: pick from roster + PIN (no free-text names) ---- */
@@ -1638,9 +1653,9 @@ function renderSuppliers(){
   const cards=sups.map(s=>{
     const itemRows=(s.items||[]).map(it=>`<tr>
       <td>${supplyName(it.key)}</td>
-      <td class="right">${it.packSize||1} ${supplyUnit(it.key)}</td>
-      <td class="right">${it.minOrder||0} ${supplyUnit(it.key)}</td>
-      <td class="right no-print"><button class="btn sm ghost" onclick="editSupItem('${s.id}','${it.key}')">Edit</button> <button class="btn sm ghost" onclick="removeSupItem('${s.id}','${it.key}')">✕</button></td>
+      <td class="right"><input type="number" min="1" value="${it.packSize||1}" style="width:60px" onchange="setSupItem('${s.id}','${it.key}','pack',this.value)"> ${supplyUnit(it.key)}</td>
+      <td class="right"><input type="number" min="0" value="${it.minOrder||0}" style="width:60px" onchange="setSupItem('${s.id}','${it.key}','min',this.value)"> ${supplyUnit(it.key)}</td>
+      <td class="right no-print"><button class="btn sm ghost" onclick="removeSupItem('${s.id}','${it.key}')">✕</button></td>
     </tr>`).join('');
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -1663,20 +1678,37 @@ function renderSuppliers(){
   }).join('');
   $('#view-suppliers').innerHTML=`
     <div class="page-head"><div><h2>Suppliers</h2><p>Your vendors and what they supply. <strong>Pack size</strong> is the increment orders round up to; <strong>min order</strong> is their minimum quantity.</p></div></div>
-    <div class="card no-print"><h3>Add a supplier</h3>
-      <div class="row" style="gap:8px">
-        <label class="fld" style="flex:2"><span>Name</span><input id="sup_name" placeholder="e.g. Manila Oils Trading"></label>
-        <label class="fld" style="flex:1"><span>Phone</span><input id="sup_phone"></label>
-        <label class="fld" style="flex:2"><span>Email</span><input id="sup_email" type="email"></label>
-      </div>
-      <div class="row" style="gap:8px">
-        <label class="fld" style="flex:3"><span>Address</span><input id="sup_addr"></label>
-        <label class="fld" style="flex:1"><span>Account / ID #</span><input id="sup_acct"></label>
-      </div>
-      <label class="fld"><span>Note</span><input id="sup_note" placeholder="terms, contact person, etc."></label>
-      <button class="btn gold" onclick="addSupplier()">+ Add supplier</button>
-    </div>
-    ${sups.length?`<div class="grid g2">${cards}</div>`:`<div class="card"><div class="empty"><div class="big">◇</div>No suppliers yet — add your first above.</div></div>`}`;
+    <div class="no-print" style="margin-bottom:14px"><button class="btn gold" onclick="openSupplierForm()">+ Add supplier</button></div>
+    ${sups.length?`<div class="grid g2">${cards}</div>`:`<div class="card"><div class="empty"><div class="big">◇</div>No suppliers yet — add your first with the button above.</div></div>`}`;
+}
+let _supEditId=null;
+function openSupplierForm(id){
+  _supEditId=id||null; const s=id?supplierById(id):null;
+  const m=document.getElementById('supForm'); if(!m) return;
+  m.querySelector('#supFormTitle').textContent=s?'Edit supplier':'Add supplier';
+  const set=(f,v)=>{ const el=m.querySelector('#'+f); if(el) el.value=v||''; };
+  set('sf_name',s&&s.name); set('sf_phone',s&&s.phone); set('sf_email',s&&s.email);
+  set('sf_addr',s&&s.address); set('sf_acct',s&&s.account); set('sf_note',s&&s.note);
+  m.style.display='flex'; setTimeout(()=>{const n=m.querySelector('#sf_name'); if(n) n.focus();},60);
+}
+function closeSupplierForm(){ const m=document.getElementById('supForm'); if(m) m.style.display='none'; _supEditId=null; }
+function saveSupplierForm(){
+  const m=document.getElementById('supForm'); const g=f=>(m.querySelector('#'+f).value||'').trim();
+  const name=g('sf_name'); if(!name){ toast('Enter a supplier name'); return; }
+  if(_supEditId){
+    const s=supplierById(_supEditId);
+    if(s){ s.name=name; s.phone=g('sf_phone'); s.email=g('sf_email'); s.address=g('sf_addr'); s.account=g('sf_acct'); s.note=g('sf_note'); }
+  } else {
+    STATE.suppliers=STATE.suppliers||[];
+    STATE.suppliers.push({id:uid(), name, phone:g('sf_phone'), email:g('sf_email'), address:g('sf_addr'), account:g('sf_acct'), note:g('sf_note'), items:[]});
+  }
+  saveState(); if(typeof pushState==='function')pushState(); closeSupplierForm(); renderSuppliers(); toast('Saved');
+}
+function setSupItem(sid,key,which,val){
+  const s=supplierById(sid); if(!s) return; const it=(s.items||[]).find(i=>i.key===key); if(!it) return;
+  const n=parseInt(val);
+  if(which==='pack'){ if(n>0) it.packSize=n; } else { if(n>=0) it.minOrder=n; }
+  saveState(); if(typeof pushState==='function')pushState();
 }
 function addSupplier(){
   const g=id=>{const e=$('#'+id);return e?e.value.trim():'';};
@@ -1685,14 +1717,7 @@ function addSupplier(){
   STATE.suppliers.push({id:uid(), name, phone:g('sup_phone'), email:g('sup_email'), address:g('sup_addr'), account:g('sup_acct'), note:g('sup_note'), items:[]});
   saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(name+' added');
 }
-function editSupplier(id){
-  const s=supplierById(id); if(!s) return;
-  const f=(label,cur)=>{ const v=prompt(label,cur||''); return v===null?cur:v.trim(); };
-  const nm=f('Name', s.name); if(nm) s.name=nm;
-  s.phone=f('Phone', s.phone); s.email=f('Email', s.email);
-  s.address=f('Address', s.address); s.account=f('Account / ID #', s.account); s.note=f('Note', s.note);
-  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
-}
+function editSupplier(id){ openSupplierForm(id); }
 function deleteSupplier(id){
   const s=supplierById(id); if(!s) return;
   if(!confirm('Delete supplier '+s.name+'?')) return;
@@ -1739,8 +1764,28 @@ function renderCardLink(){
     <table style="margin-top:8px"><thead><tr><th>Worker</th><th class="right">Card</th><th class="no-print"></th></tr></thead>
       <tbody>${rows||'<tr><td colspan="3" class="muted">No workers yet — add them in the office app.</td></tr>'}</tbody></table>`;
 }
+/* ---- manager PIN change + forgot-PIN (email-verified via Google sign-in) ---- */
+function updateMgrPin(){
+  const sel=$('#pin_who'); const id=sel?sel.value:''; const pin=(($('#pin_new')||{}).value||'').trim();
+  const w=(STATE.roster||[]).find(x=>x.id===id); if(!w){ toast('Pick a manager'); return; }
+  if(!/^\d{4,6}$/.test(pin)){ toast('PIN must be 4–6 digits'); return; }
+  w.pin=pin; saveState(); if(typeof pushState==='function')pushState(); renderSettings(); toast(w.name+"'s PIN updated");
+}
+function updateMyPin(){
+  if(typeof MGR_USER==='undefined' || !MGR_USER){ toast('No manager signed in'); return; }
+  const pin=((($('#pin_new')||{}).value)||'').trim();
+  if(!/^\d{4,6}$/.test(pin)){ toast('PIN must be 4–6 digits'); return; }
+  const w=(STATE.roster||[]).find(x=>x.id===MGR_USER.id); if(w){ w.pin=pin; MGR_USER=w; }
+  saveState(); if(typeof pushState==='function')pushState(); renderSettings(); toast('Your PIN was updated');
+}
+function linkMyCard(){
+  if(typeof MGR_USER==='undefined' || !MGR_USER){ toast('Sign in first'); return; }
+  openCardLink(); registerCard(MGR_USER.id);
+}
+function forgotPin(){ toast('Ask the owner to reset your PIN in the office app (operations.html).'); }
+function forgotPinUnlock(){ closeMgrModal(); toast('Forgot your PIN? Ask the owner — they can reset it in the office app.'); }
 /* ---- manager mode (PIN-gated) ---- */
-let MANAGER=false, _mgrThen=null;
+let MANAGER=false, _mgrThen=null, MGR_USER=null, _pinVerifyMode=false;
 function managers(){ return (STATE.roster||[]).filter(w=>w.mgr && w.pin); }
 function managersExist(){ return managers().length>0; }
 function isManagerUnlocked(){ return MANAGER || !managersExist(); }   // open until the first manager is set
@@ -1754,7 +1799,7 @@ function closeMgrModal(){ const m=document.getElementById('mgrModal'); if(m) m.s
 function submitMgrPin(){
   const m=document.getElementById('mgrModal'); const pin=(m.querySelector('#mgrPin').value||'').trim();
   if(!managers().some(w=>String(w.pin)===pin)){ const e=m.querySelector('#mgrErr'); if(e){ e.textContent='Wrong manager PIN.'; e.style.display='block'; } m.querySelector('#mgrPin').value=''; return; }
-  MANAGER=true; const cb=_mgrThen; _mgrThen=null; m.style.display='none'; renderTabs();
+  MANAGER=true; MGR_USER=managers().find(w=>String(w.pin)===pin)||null; const cb=_mgrThen; _mgrThen=null; m.style.display='none'; renderTabs();
   if(typeof cb==='function') cb(); toast('Manager mode on');
 }
 function toggleMgr(id){ const w=workerById(id); if(!w) return;
@@ -1778,7 +1823,7 @@ async function onGoogleCredential(resp){
   try{
     const r=await fetch(backendBase()+'/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:resp.credential})});
     const d=await r.json();
-    if(d&&d.ok&&d.token){ ADMIN_SESSION=d.token; hideAdminGate(); afterAdminLogin(d); }
+    if(d&&d.ok&&d.token){ ADMIN_SESSION=d.token; if(_pinVerifyMode){ _pinVerifyMode=false; if(CURRENT_TAB==='settings'&&typeof renderSettings==='function') renderSettings(); toast('Verified by email — change the PIN above'); } else { hideAdminGate(); afterAdminLogin(d); } }
     else if(err){ err.style.display='block'; err.textContent=authErrMsg(d&&d.error); }
   }catch(e){ if(err){ err.style.display='block'; err.textContent='Network error — check the connection and try again.'; } }
 }
@@ -1794,7 +1839,7 @@ function afterAdminLogin(d){ try{ toast('Signed in'+(d&&d.name?' — '+d.name:''
   FX=parseFloat($('#fxRate').value)||FX_DEFAULT;
   renderTabs();
   switchTab(START_TAB);
-  if(AUTH_ENABLED){ showAdminGate(); } else { startBackendSync(); }
+  startBackendSync();
 })();
 
 
@@ -1905,7 +1950,7 @@ function dangerReset(){
 function renderSettings(){
   const b=loadBiz();
   $('#view-settings').innerHTML=`
-    <div class="page-head"><div><h2>Settings</h2><p>Business info, backups, and danger zone. Owner only.</p></div></div>
+    <div class="page-head"><div><h2>Settings</h2><p>Business info and manager PINs. Manager only.</p></div></div>
     <div class="card"><h3>Business info</h3>
       <div class="row">
         <label class="fld"><span>Business name</span><input id="set_name" value="${esc(b.name)}" placeholder="Kalinga Naturals"></label>
@@ -1919,14 +1964,19 @@ function renderSettings(){
       <p class="muted" style="margin-top:8px">Exchange rate (PHP per $1) lives in the top bar.</p>
       <button class="btn gold" style="margin-top:12px" onclick="saveBiz()">Save</button>
     </div>
-    <div class="card"><h3>Backup &amp; restore</h3>
-      <p class="muted" style="margin-bottom:10px">Download a full backup before any risky change, or restore from one.</p>
-      <button class="btn teal" onclick="exportData()">⤓ Export backup (JSON)</button>
-      <label class="btn ghost" style="margin-left:8px;cursor:pointer">⤒ Import backup<input type="file" accept="application/json" style="display:none" onchange="importData(event)"></label>
-    </div>
-    <div class="card" style="border:1px solid var(--bad)"><h3 style="color:var(--bad)">Danger zone</h3>
-      <p class="muted" style="margin-bottom:10px">Clears all orders and production data. Your inventory catalog and prices are kept.</p>
-      <button class="btn" style="background:var(--bad);color:#fff" onclick="dangerReset()">Delete all jobs</button>
+    <div class="card"><h3>My account</h3>
+      ${(typeof MGR_USER!=='undefined'&&MGR_USER)?`
+      <p class="muted" style="margin-bottom:10px">Signed in as <strong>${MGR_USER.name}</strong>. Change your own PIN or link your card here. To add or remove people, use the office app.</p>
+      <div class="row" style="gap:8px;align-items:flex-end">
+        <label class="fld" style="flex:1"><span>New PIN (4–6 digits)</span><input id="pin_new" inputmode="numeric" maxlength="6" placeholder="1234"></label>
+        <button class="btn gold" onclick="updateMyPin()">Update my PIN</button>
+      </div>
+      <p class="muted" style="margin-top:10px"><a href="#" onclick="forgotPin();return false;">Forgot PIN?</a></p>
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" onclick="linkMyCard()">${MGR_USER.cardId?'Re-link my NFC card':'Link my NFC card'}</button>
+        <button class="btn ghost" onclick="openCardLink()">Link team members' cards…</button>
+      </div>
+      `:`<p class="muted">No manager signed in. Sign in with your PIN or card to manage your account.</p>`}
     </div>`;
 }
 
