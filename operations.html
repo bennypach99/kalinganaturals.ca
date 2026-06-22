@@ -310,7 +310,8 @@ let STATE = {
   deliveries:[],  // {id, ingredient, grams, phpCost, date}
   shipDates:{},   // {orderId: 'YYYY-MM-DD'} ship-by dates (synced via production state)
   stock:{},       // finished-bar stock (managed in workers app; synced)
-  workers:{},     // {cardId:name} (managed in workers app; synced)
+  workers:{},     // {cardId:name} legacy (synced)
+  roster:[],      // [{id,name,pin,cardId}] worker roster (managed on the workshop tablet; synced)
   shifts:[],      // punch records (managed in workers app; synced)
   exportBox:{contents:{},started:''}, exportLog:[], boxStock:0, // export box (workers app; synced)
 };
@@ -847,7 +848,10 @@ let START_TAB = 'dash';
 function backendBase(){ return BACKEND_URL.replace(/\/$/,''); }
 function loadSync(){ try{ return JSON.parse(localStorage.getItem(SYNC_KEY)) || {cursor:'',deleted:[],stateVersion:0}; }catch(e){ return {cursor:'',deleted:[],stateVersion:0}; } }
 function saveSync(s){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify(s)); }catch(e){} }
-function cacheLocal(){ try{ localStorage.setItem(SKEY, JSON.stringify(STATE)); }catch(e){ if(typeof toast==='function') toast('\u26a0 Storage full \u2014 export a backup and clear old data'); } }
+function cacheLocal(){ try{ const s=JSON.stringify(STATE); localStorage.setItem(SKEY, s);
+    const dk=SKEY+':day:'+today(); if(localStorage.getItem(dk)!==s){ localStorage.setItem(dk, s); pruneSnaps(); }
+  }catch(e){ if(typeof toast==='function') toast('\u26a0 Storage full \u2014 export a backup and clear old data'); } }
+function pruneSnaps(){ try{ const ks=Object.keys(localStorage).filter(k=>k.indexOf(SKEY+':day:')===0).sort(); while(ks.length>7) localStorage.removeItem(ks.shift()); }catch(e){} }
 let stateVersion = loadSync().stateVersion || 0;
 
 async function saveState(){ cacheLocal(); schedulePush(); }
@@ -900,12 +904,12 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts','exportBox','exportLog','boxStock'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
@@ -1202,5 +1206,3 @@ function switchTab(id){
     inv:renderInv,ship:renderShip,work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{})}[id]||(()=>{}))();
 }
 </script>
-</body>
-</html>

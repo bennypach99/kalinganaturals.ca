@@ -164,7 +164,33 @@
     <div class="login-clock" id="loginClock">--:--</div>
     <div class="login-date" id="loginDate"></div>
     <div class="login-prompt" id="loginPrompt">Tap the screen, then scan your card to start</div>
-    <button class="login-manual" id="loginManual" onclick="event.stopPropagation();manualSignIn()">No card? Sign in manually</button>
+    <button class="login-manual" id="loginManual" onclick="event.stopPropagation();openSigninModal()">No card? Sign in with PIN</button>
+    <button class="login-manual" id="loginManage" style="margin-top:8px;opacity:.75;font-size:13px" onclick="event.stopPropagation();openRoster()">Manage team</button>
+  </div>
+</div>
+<div id="signinModal" class="pm" style="display:none">
+  <div class="pm-box">
+    <h3 style="margin-bottom:6px">Sign in</h3>
+    <p class="muted">Select your name and enter your PIN.</p>
+    <label class="fld" style="text-align:left;margin-top:10px"><span>Worker</span>
+      <select id="signinSel"></select></label>
+    <label class="fld" style="text-align:left;margin-top:10px"><span>PIN</span>
+      <input id="signinPin" type="password" inputmode="numeric" maxlength="6" placeholder="****" onkeydown="if(event.key==='Enter')doSignin()"></label>
+    <p id="signinErr" style="color:#b3261e;font-size:13px;margin-top:10px;display:none"></p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+      <button class="btn ghost" onclick="closeSignin()">Cancel</button>
+      <button class="btn gold" onclick="doSignin()">Sign in</button>
+    </div>
+  </div>
+</div>
+<div id="rosterModal" class="pm" style="display:none">
+  <div class="pm-box" style="max-width:560px;text-align:left">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">Manage team</h3>
+      <button class="btn ghost sm" onclick="closeRoster()">Close</button>
+    </div>
+    <p class="muted" style="margin-top:4px">Add each worker with a PIN, then link their NFC card. Workers sign in by tapping their card, or by picking their name and entering their PIN.</p>
+    <div id="rosterBody"></div>
   </div>
 </div>
 <div id="punchModal" class="pm" style="display:none">
@@ -200,6 +226,8 @@
   <div class="view" id="view-prod"></div>
   <!-- INVENTORY -->
   <div class="view" id="view-inv"></div>
+  <!-- CURING -->
+  <div class="view" id="view-curing"></div>
   <!-- SHIPMENTS -->
   <div class="view" id="view-ship"></div>
   <div class="view" id="view-stats"></div>
@@ -344,7 +372,8 @@ let STATE = {
   exportBox:{contents:{},started:''}, // current Canada-bound box (synced)
   exportLog:[],   // shipped export boxes (synced)
   boxStock:0,     // empty export boxes on hand (synced)
-  workers:{},     // {cardId: name} NFC punch cards (synced)
+  workers:{},     // {cardId: name} legacy map (kept for migration)
+  roster:[],      // [{id,name,pin,cardId}] worker roster (synced)
   shifts:[],      // [{id,cardId,name,in,out,mins}] punch records (synced)
 };
 
@@ -381,38 +410,24 @@ function renderOrders(){
   const assigned={};
   open.forEach(o=>Object.entries(o.items).forEach(([k,q])=>{ if(q>0) assigned[k]=(assigned[k]||0)+q; }));
   const nextShip=(STATE.settings&&STATE.settings.nextShip)||'';
-  const queue=[];
   const made=producedMap();
   const rows=PROD_KEYS.map(pk=>{
     const ord=assigned[pk]||0, stk=made[pk]||0, avail=stk-ord;
-    const target=ord;
-    const inFlight=(STATE.batches||[]).filter(b=>b.product===pk && b.status!=='shipped' && !b.orderId).length*BATCH_SIZE;
-    const toCreate = (stk+inFlight)<target ? Math.ceil((target-stk-inFlight)/BATCH_SIZE) : 0;
-    if(ord===0 && stk===0 && toCreate===0) return '';
-    if(toCreate>0) queue.push({pk, n:toCreate, urgent: stk<ord, short: Math.max(0,ord-stk)});
+    if(ord===0 && stk===0) return '';
     return `<tr><td><strong>${PRODUCTS[pk].name.replace(' Bar','')}</strong></td>
       <td class="right">${ord}</td><td class="right">${stk}</td>
       <td class="right ${avail<0?'low':''}">${avail}${avail<0?' ⚠':''}</td></tr>`;
   }).join('');
-  queue.sort((a,b)=> (b.urgent-a.urgent) || (b.short-a.short));
-  const qrows=queue.map(x=>`<tr>
-      <td><strong>${PRODUCTS[x.pk].name.replace(' Bar','')}</strong></td>
-      <td>${x.urgent?`<span class="pill new">order short ${x.short}</span>`:`<span class="pill make">restock</span>`}</td>
-      <td class="right">${x.n} batch${x.n>1?'es':''} × ${BATCH_SIZE}</td>
-      <td class="right no-print"><button class="btn sm teal" onclick="createStockBatch('${x.pk}')">+ Create batch</button></td></tr>`).join('');
   $('#view-orders').innerHTML=`
     <div class="page-head"><div>
       <h2>Received Orders</h2>
-      <p>${nextShip?`Next shipment to Canada: <strong>${nextShip}</strong>`:'Orders received from the website, summarised by bar.'}</p>
+      <p>${nextShip?`Next shipment to Canada: <strong>${nextShip}</strong>`:'Orders received from the website, summarised by bar. Make them in the Production tab.'}</p>
     </div></div>
     <div class="card">
-      <h3>Bars ordered vs stock <span class="muted">(${open.length} order${open.length===1?'':'s'})</span></h3>
+      <h3>Bars ordered vs made <span class="muted">(${open.length} order${open.length===1?'':'s'})</span></h3>
       ${rows?`<table><thead><tr><th>Bar</th><th class="right">Ordered</th><th class="right">Made</th><th class="right">Available</th></tr></thead><tbody>${rows}</tbody></table>`
         :`<div class="empty"><div class="big">◇</div>No orders received yet.</div>`}
-    </div>
-    ${queue.length?`<div class="card"><h3>Batches to make <span class="muted">(priority order)</span></h3>
-      <table><thead><tr><th>Bar</th><th>Reason</th><th class="right">Make</th><th class="no-print"></th></tr></thead><tbody>${qrows}</tbody></table>
-      <p class="muted" style="margin-top:8px">Order shortfalls first, then restock to keep ${RESTOCK_BELOW}+ of each on hand. Each batch makes ${BATCH_SIZE} bars.</p></div>`:''}`;
+    </div>`;
 }
 function addOrder(){
   const gv=id=>{const e=$('#'+id);return e?e.value.trim():'';};
@@ -526,12 +541,12 @@ function backOrder(id){
 function backToMake(id){
   const b=STATE.batches.find(x=>x.id===id);if(!b)return;
   b.status='make';b.curedAt=null;
-  saveState();toast('Back to make list');renderMake();renderTabs();
+  saveState();toast('Back to make list');renderProd();renderTabs();
 }
 function backReady(id){
   const b=STATE.batches.find(x=>x.id===id);if(!b)return;
   b.status='cure';if(!b.curedAt)b.curedAt=today();
-  saveState();toast('Back to curing');renderMake();renderTabs();
+  saveState();toast('Back to curing');renderProd();renderTabs();
 }
 function unshipOrder(id){
   const o=STATE.orders.find(x=>x.id===id);if(!o)return;
@@ -542,7 +557,7 @@ function unshipOrder(id){
 }
 function markReady(id){
   const b=STATE.batches.find(x=>x.id===id);if(!b)return;
-  b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); saveState();toast('Batch ready — '+(b.qty||0)+' bars added to the Canada box');renderMake();renderTabs();
+  b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); saveState();toast('Batch ready — '+(b.qty||0)+' bars added to the Canada box');renderProd();renderTabs();
 }
 
 /* ============================================================
@@ -550,28 +565,33 @@ function markReady(id){
    ============================================================ */
 let PRODUCTION_FOCUS=null;
 let TIMER={int:null,remain:0,stepIndex:-1,product:null};
-const SETUP_STEPS=[
+function setupSteps(n){ return [
   "Confirm you're punched in. Put on PPE — goggles, gloves, apron.",
   "Sanitize the workspace and all tools.",
-  "Gather and weigh the oils and additives for this batch.",
-  "Set up the lye station with ventilation; measure lye and distilled water.",
-  "Chill any milk or liquid ingredients the recipe calls for."
-];
-const CLEANUP_STEPS=[
+  n>1?`Masterbatch: weigh the oils & additives for ALL ${n} batches at once (${n}×${BATCH_SIZE} = ${n*BATCH_SIZE} bars).`:"Gather and weigh the oils and additives for this batch.",
+  n>1?`Measure the lye and distilled water for all ${n} batches — make ONE lye solution for the whole session.`:"Set up the lye station with ventilation; measure lye and distilled water.",
+  "Set up the lye station with good ventilation. Chill any milk or liquid ingredients the recipe needs."
+]; }
+function cleanupSteps(n){ return [
   "Neutralize and rinse all lye-contact tools (vinegar, then water).",
   "Wash, rinse, and dry all equipment and moulds.",
   "Wipe down and sanitize the workspace.",
-  "Label the batch: name, batch #, pour date, cure-ready date.",
-  "Place on the assigned curing rack and note the rack number."
-];
+  n>1?`Label all ${n} batches: name, batch #, pour date, cure-ready date.`:"Label the batch: name, batch #, pour date, cure-ready date.",
+  n>1?`Place all ${n} batches on the curing racks and note each rack number.`:"Place on the assigned curing rack and note the rack number."
+]; }
+function makeSteps(pk,n){
+  const base=(PRODUCTS[pk].steps||[]).map(s=>s.t);
+  if(n>1) return [`You're making ${n} batches this session (${n*BATCH_SIZE} bars). Mix one master batch to light trace, then split and pour into ${n} moulds.`].concat(base).concat([`Pour and mould all ${n} batches before moving to cleanup.`]);
+  return base;
+}
 let WIZARD=null, WIZ_TICK=null;
 function wizPhases(){
-  const mk=(PRODUCTS[WIZARD.product].steps||[]).map(s=>s.t);
-  return [["Setup",SETUP_STEPS],["Make · "+PRODUCTS[WIZARD.product].name,mk],["Cleanup",CLEANUP_STEPS]];
+  const n=(WIZARD&&WIZARD.batches)||1;
+  return [["Setup",setupSteps(n)],["Make · "+PRODUCTS[WIZARD.product].name,makeSteps(WIZARD.product,n)],["Cleanup",cleanupSteps(n)]];
 }
-function startWizard(batchId){
-  const b=STATE.batches.find(x=>x.id===batchId); if(!b) return;
-  WIZARD={batchId, product:b.product, qty:b.qty, startedAt:Date.now(), phase:0, step:0, phaseStartAt:Date.now(), durations:{setup:0,make:0,cleanup:0}};
+function startWizard(pk,count){
+  count=Math.max(1,Math.min(REC_MAX_BATCHES, count||1));
+  WIZARD={product:pk, batches:count, qty:count*BATCH_SIZE, startedAt:Date.now(), phase:0, step:0, phaseStartAt:Date.now(), durations:{setup:0,make:0,cleanup:0}};
   if(WIZ_TICK) clearInterval(WIZ_TICK); WIZ_TICK=setInterval(wizTick,1000);
   renderProd();
 }
@@ -605,30 +625,70 @@ function nextRack(){
   let n=1; while(used.has(n)) n++; return n;
 }
 function finishWizard(){
-  const w=WIZARD; const b=STATE.batches.find(x=>x.id===w.batchId);
-  const total=Math.round((Date.now()-w.startedAt)/60000);
-  if(b){ b.status='cure'; b.curedAt=today(); b.started=today(); b.rack=nextRack();
-    b.madeBy=(typeof ACTIVE!=='undefined'&&ACTIVE)?ACTIVE.name:(b.madeBy||'');
-    b.minutes=total; b.setupMin=w.durations.setup; b.makeMin=w.durations.make; b.cleanupMin=w.durations.cleanup; }
+  const w=WIZARD; const total=Math.round((Date.now()-w.startedAt)/60000); const n=w.batches||1;
+  const per=Math.round(total/n), pS=Math.round((w.durations.setup||0)/n), pM=Math.round((w.durations.make||0)/n), pC=Math.round((w.durations.cleanup||0)/n);
+  const by=(typeof ACTIVE!=='undefined'&&ACTIVE)?ACTIVE.name:'';
+  for(let i=0;i<n;i++){
+    STATE.batches.push({id:uid(), num:batchNum(), product:w.product, qty:BATCH_SIZE, status:'cure', orderId:null,
+      started:today(), curedAt:today(), rack:nextRack(), madeBy:by, created:today(),
+      minutes:per, setupMin:pS, makeMin:pM, cleanupMin:pC, session:w.startedAt});
+  }
   PRODUCTS[w.product].ingredients.forEach(i=>{ STATE.inventory[i.key]=Math.max(0,(STATE.inventory[i.key]||0)-i.grams*w.qty); });
   if(WIZ_TICK) clearInterval(WIZ_TICK); WIZ_TICK=null; WIZARD=null;
-  saveState(); toast('Batch complete — '+total+' min. Now curing.'); renderProd(); renderTabs();
+  saveState(); if(typeof pushState==='function') pushState();
+  toast(n+' batch'+(n>1?'es':'')+' complete — '+total+' min. Now curing.'); renderProd(); renderTabs();
 }
+const REC_MAX_BATCHES=4;
+function computeNeed(){
+  const open=STATE.orders.filter(o=>o.status!=='shipped');
+  const ordered={}; open.forEach(o=>Object.entries(o.items).forEach(([k,q])=>{ if(q>0) ordered[k]=(ordered[k]||0)+q; }));
+  const made=producedMap();
+  const wip={}; STATE.batches.filter(b=>b.status==='make'||b.status==='cure').forEach(b=>{ wip[b.product]=(wip[b.product]||0)+(b.qty||0); });
+  const per={};
+  PROD_KEYS.forEach(pk=>{ const ord=ordered[pk]||0, md=made[pk]||0, w=wip[pk]||0; const need=Math.max(0,ord-md-w);
+    per[pk]={ordered:ord,made:md,wip:w,needBars:need,batches:Math.ceil(need/BATCH_SIZE)}; });
+  return per;
+}
+function totalBatchesNeeded(){ const p=computeNeed(); return PROD_KEYS.reduce((s,pk)=>s+p[pk].batches,0); }
+function startMakeFromCard(pk){ const sel=document.getElementById('mk-'+pk); let n=sel?parseInt(sel.value)||1:1; startWizard(pk, Math.max(1,Math.min(REC_MAX_BATCHES,n))); }
 function renderProd(){
   if(WIZARD){ renderWizard(); return; }
-  const makeB=STATE.batches.filter(b=>b.status==='make');
-  const rows=makeB.map(b=>`<tr>
-    <td><strong>${PRODUCTS[b.product].name.replace(' Bar','')}</strong></td>
-    <td class="right">${b.qty} bars</td>
-    <td class="right no-print"><button class="btn sm teal" onclick="startWizard('${b.id}')">▶ Start guided make</button></td></tr>`).join('');
+  const need=computeNeed();
+  const order=PROD_KEYS.slice().sort((a,b)=> need[b].batches-need[a].batches || need[b].needBars-need[a].needBars);
+  let firstMarked=false;
+  const cards=order.map(pk=>{
+    const n=need[pk]; const P=PRODUCTS[pk];
+    const canOne=P.ingredients.every(i=>(STATE.inventory[i.key]||0) >= i.grams*BATCH_SIZE);
+    let maxByStock=Infinity; P.ingredients.forEach(i=>{ const can=Math.floor((STATE.inventory[i.key]||0)/(i.grams*BATCH_SIZE)); if(can<maxByStock) maxByStock=can; });
+    if(!isFinite(maxByStock)) maxByStock=0;
+    const want=Math.max(1, Math.min(n.batches||1, REC_MAX_BATCHES));
+    let pill;
+    if(n.batches>0 && !firstMarked){ pill='<span class="pill new">★ Make first</span>'; firstMarked=true; }
+    else if(n.batches>0){ pill='<span class="pill make">to make</span>'; }
+    else { pill='<span class="pill ready">caught up ✓</span>'; }
+    let selOpts=''; for(let i=1;i<=REC_MAX_BATCHES;i++){ selOpts+=`<option value="${i}" ${i===want?'selected':''}>${i} batch${i>1?'es':''} · ${i*BATCH_SIZE} bars</option>`; }
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div><h3 style="margin-bottom:2px">${P.name.replace(' Bar','')}</h3>
+          <div class="muted">${BATCH_SIZE} bars/batch · cure ${P.cure} days</div></div>
+        ${pill}
+      </div>
+      <div style="font-family:Georgia,serif;font-size:30px;font-weight:700;color:${n.batches>0?'var(--navy)':'#8a97a3'};margin:8px 0 2px">
+        ${n.batches>0?`${n.batches} batch${n.batches>1?'es':''} to make`:'Caught up ✓'}</div>
+      <div class="muted">${n.batches>0?`${n.needBars} bars needed for open orders`:`${n.ordered} ordered · ${n.made} made · ${n.wip} curing`}</div>
+      ${canOne?'':`<p class="muted" style="color:var(--bad);margin-top:8px">Not enough ingredients for a batch — log a delivery in Inventory.</p>`}
+      <div class="no-print" style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <select id="mk-${pk}" ${canOne?'':'disabled'}>${selOpts}</select>
+        <button class="btn teal" ${canOne?'':'disabled'} onclick="startMakeFromCard('${pk}')">▶ Start guided make</button>
+      </div>
+      ${(maxByStock>0&&maxByStock<REC_MAX_BATCHES)?`<p class="muted" style="margin-top:6px">Stock allows up to ${maxByStock} batch${maxByStock>1?'es':''} right now.</p>`:''}
+    </div>`;
+  }).join('');
   $('#view-prod').innerHTML=`
     <div class="page-head"><div>
-      <h2>Production</h2><p>Pick a batch and follow the guided steps. Setup, making, and cleanup are timed automatically.</p>
+      <h2>Production</h2><p>What to make, in priority order. Choose how many batches, then follow the guided steps — setup, making and cleanup are timed.</p>
     </div></div>
-    <div class="card">
-      <h3>Batches ready to make <span class="muted">(${makeB.length})</span></h3>
-      ${makeB.length?`<table><thead><tr><th>Soap</th><th class="right">Batch</th><th class="no-print"></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>No batches queued. Create one from the Received Orders tab.</div>`}
-    </div>`;
+    <div class="grid g2">${cards}</div>`;
 }
 function renderWizard(){
   const phases=wizPhases(); const steps=phases[WIZARD.phase][1]; const stepText=steps[WIZARD.step];
@@ -638,7 +698,7 @@ function renderWizard(){
   const backDis = WIZARD.phase===0 && WIZARD.step===0 ? 'disabled' : '';
   $('#view-prod').innerHTML=`
     <div class="page-head"><div>
-      <h2>${phases[WIZARD.phase][0]}</h2><p>${PRODUCTS[WIZARD.product].name} · ${WIZARD.qty} bars &nbsp; ${dots}</p>
+      <h2>${phases[WIZARD.phase][0]}</h2><p>${PRODUCTS[WIZARD.product].name} · ${WIZARD.batches} batch${WIZARD.batches>1?'es':''} (${WIZARD.qty} bars) &nbsp; ${dots}</p>
     </div></div>
     <div class="card" style="text-align:center">
       <div class="muted" style="font-size:13px;text-transform:uppercase;letter-spacing:1px">Step ${WIZARD.step+1} of ${steps.length}</div>
@@ -715,7 +775,7 @@ function batchNum(){
 function printBatchLabel(id){
   const b=STATE.batches.find(x=>x.id===id); if(!b) return;
   const ready=b.curedAt?new Date(new Date(b.curedAt).getTime()+PRODUCTS[b.product].cure*86400000).toISOString().slice(0,10):'—';
-  const el=$('#invLabel'); if(!el) return;
+  const el=$('#curingLabel'); if(!el) return;
   el.classList.add('print-active');
   el.innerHTML=`<div class="card" style="max-width:420px;margin:20px auto">
     <div style="text-align:center;border-bottom:2px solid var(--gold);padding-bottom:10px;margin-bottom:12px">
@@ -736,42 +796,30 @@ function printBatchLabel(id){
     <div class="no-print center" style="margin-top:14px">
       <button class="btn gold" onclick="window.print()">Print</button>
       <button class="btn ghost" onclick="closeInvLabel()">Close</button></div></div>`;
-  document.querySelectorAll('#view-inv>.card').forEach(c=>c.classList.add('no-print'));
+  document.querySelectorAll('#view-curing>.card').forEach(c=>c.classList.add('no-print'));
   const q=document.getElementById('lbl-qr');
   if(q&&window.QRCode){ try{ new QRCode(q,{text:'Kalinga Naturals | '+(b.num||b.id)+' | '+PRODUCTS[b.product].name+' | Rack '+(b.rack||'?')+' | '+b.qty+' bars | cure-ready '+ready, width:110, height:110, correctLevel:QRCode.CorrectLevel.M}); }catch(e){} }
   window.scrollTo(0,document.body.scrollHeight);
 }
-function closeInvLabel(){ const el=$('#invLabel'); if(el){ el.classList.remove('print-active'); el.innerHTML=''; } document.querySelectorAll('#view-inv>.card').forEach(c=>c.classList.remove('no-print')); }
+function closeInvLabel(){ const el=$('#curingLabel'); if(el){ el.classList.remove('print-active'); el.innerHTML=''; } document.querySelectorAll('#view-curing>.card').forEach(c=>c.classList.remove('no-print')); }
 function renderInv(){
   const master=allIngredients();
   const ingInputs=Object.values(master).map(i=>`<option value="${i.key}">${i.name}</option>`).join('');
-  const needed={};
-  STATE.batches.filter(b=>b.status==='make').forEach(b=>{
-    PRODUCTS[b.product].ingredients.forEach(i=>{needed[i.key]=(needed[i.key]||0)+i.grams*b.qty;});
-  });
+  const need=(typeof computeNeed==='function')?computeNeed():{};
+  const neededG={};
+  PROD_KEYS.forEach(pk=>{ const n=need[pk]; if(n&&n.batches>0){ PRODUCTS[pk].ingredients.forEach(i=>{ neededG[i.key]=(neededG[i.key]||0)+i.grams*n.batches*BATCH_SIZE; }); } });
   const rows=Object.values(master).map(i=>{
-    const have=STATE.inventory[i.key]||0,need=needed[i.key]||0,avail=have-need,short=avail<0;
+    const have=STATE.inventory[i.key]||0, req=neededG[i.key]||0, after=have-req, short=after<0;
     return `<tr><td>${i.name}</td>
       <td class="right">${have} g</td>
-      <td class="right">${need? need+' g':'—'}</td>
-      <td class="right ${short?'low':''}">${avail} g</td>
+      <td class="right">${req? req+' g':'—'}</td>
+      <td class="right ${short?'low':''}">${after} g${short?' ⚠':''}</td>
       <td>${short?`<span class="pill new">reorder</span>`:`<span class="pill ready">ok</span>`}</td>
       <td class="right no-print"><button class="btn sm ghost" onclick="quickAdd('${i.key}')">+ stock</button></td></tr>`;
   }).join('');
-  const curing=STATE.batches.filter(b=>b.status==='cure');
-  const readyDate=b=>b.curedAt?new Date(new Date(b.curedAt).getTime()+PRODUCTS[b.product].cure*86400000).toISOString().slice(0,10):'—';
-  const crows=curing.map(b=>{
-    const total=PRODUCTS[b.product].cure, d=daysSince(b.curedAt||b.started||b.created), done=d>=total;
-    return `<tr>
-      <td><strong>Rack ${b.rack||'—'}</strong><div class="muted">${b.num||''}</div></td>
-      <td>${PRODUCTS[b.product].name.replace(' Bar','')}<div class="muted">${b.qty} bars · ${b.madeBy||'—'}</div></td>
-      <td>${Math.min(d,total)}/${total} days${done?' ✓':''}<div class="muted">ready ${readyDate(b)}</div></td>
-      <td><div id="qr-${b.id}"></div></td>
-      <td class="right no-print">${done?`<button class="btn sm gold" onclick="markReady('${b.id}')">Mark ready</button> `:''}<button class="btn sm ghost" onclick="printBatchLabel('${b.id}')">🖨 Label</button></td></tr>`;
-  }).join('');
   $('#view-inv').innerHTML=`
     <div class="page-head"><div>
-      <h2>Inventory</h2><p>Ingredient stock in grams, and the curing racks with their batch QR codes.</p>
+      <h2>Inventory</h2><p>Ingredient stock in grams. “Needed” is what the current open orders still require.</p>
     </div></div>
     <div class="card no-print"><h3>Log a delivery</h3>
       <div class="row">
@@ -780,14 +828,31 @@ function renderInv(){
       </div>
       <button class="btn gold" onclick="addDelivery()">+ Add to stock</button>
     </div>
-    <div class="card"><h3>Curing racks <span class="muted">(${curing.length})</span></h3>
+    <div class="card"><h3>Ingredient stock</h3>
+      <table><thead><tr><th>Ingredient</th><th class="right">On hand</th><th class="right">Needed</th><th class="right">After</th><th>Status</th><th class="no-print"></th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+}
+function renderCuring(){
+  const curing=STATE.batches.filter(b=>b.status==='cure');
+  const readyDate=b=>b.curedAt?new Date(new Date(b.curedAt).getTime()+PRODUCTS[b.product].cure*86400000).toISOString().slice(0,10):'—';
+  const crows=curing.slice().sort((a,b)=>(a.rack||0)-(b.rack||0)).map(b=>{
+    const total=PRODUCTS[b.product].cure, d=daysSince(b.curedAt||b.started||b.created), done=d>=total;
+    return `<tr>
+      <td><strong>Rack ${b.rack||'—'}</strong><div class="muted">${b.num||''}</div></td>
+      <td>${PRODUCTS[b.product].name.replace(' Bar','')}<div class="muted">${b.qty} bars · ${b.madeBy||'—'}</div></td>
+      <td>${Math.min(d,total)}/${total} days${done?' ✓':''}<div class="muted">ready ${readyDate(b)}</div></td>
+      <td><div id="qr-${b.id}"></div></td>
+      <td class="right no-print">${done?`<button class="btn sm gold" onclick="markReady('${b.id}')">Mark ready</button> `:''}<button class="btn sm ghost" onclick="printBatchLabel('${b.id}')">🖨 Label</button></td></tr>`;
+  }).join('');
+  $('#view-curing').innerHTML=`
+    <div class="page-head"><div>
+      <h2>Curing</h2><p>Every curing shelf with its batch number, QR code, and cure-ready date. Mark a batch ready once its cure is complete.</p>
+    </div></div>
+    <div class="card"><h3>Curing shelves <span class="muted">(${curing.length})</span></h3>
       ${curing.length?`<table><thead><tr><th>Rack</th><th>Batch</th><th>Cure</th><th>QR</th><th class="no-print"></th></tr></thead><tbody>${crows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Nothing curing right now.</div>`}
     </div>
-    <div class="card"><h3>Ingredient stock</h3>
-      <table><thead><tr><th>Ingredient</th><th class="right">On hand</th><th class="right">Reserved</th><th class="right">Available</th><th>Status</th><th class="no-print"></th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div>
-    <div class="view" id="invLabel"></div>`;
+    <div class="view" id="curingLabel"></div>`;
   curing.forEach(b=>{
     const el=document.getElementById('qr-'+b.id);
     if(el && window.QRCode){ el.innerHTML=''; try{ new QRCode(el,{text:'Kalinga Naturals | '+(b.num||b.id)+' | '+PRODUCTS[b.product].name+' | Rack '+(b.rack||'?')+' | '+b.qty+' bars | cure-ready '+readyDate(b), width:78, height:78, correctLevel:QRCode.CorrectLevel.M}); }catch(e){} }
@@ -987,7 +1052,10 @@ let START_TAB = 'orders';
 function backendBase(){ return BACKEND_URL.replace(/\/$/,''); }
 function loadSync(){ try{ return JSON.parse(localStorage.getItem(SYNC_KEY)) || {cursor:'',deleted:[],stateVersion:0}; }catch(e){ return {cursor:'',deleted:[],stateVersion:0}; } }
 function saveSync(s){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify(s)); }catch(e){} }
-function cacheLocal(){ try{ localStorage.setItem(SKEY, JSON.stringify(STATE)); }catch(e){ if(typeof toast==='function') toast('\u26a0 Storage full \u2014 export a backup and clear old data'); } }
+function cacheLocal(){ try{ const s=JSON.stringify(STATE); localStorage.setItem(SKEY, s);
+    const dk=SKEY+':day:'+today(); if(localStorage.getItem(dk)!==s){ localStorage.setItem(dk, s); pruneSnaps(); }
+  }catch(e){ if(typeof toast==='function') toast('\u26a0 Storage full \u2014 export a backup and clear old data'); } }
+function pruneSnaps(){ try{ const ks=Object.keys(localStorage).filter(k=>k.indexOf(SKEY+':day:')===0).sort(); while(ks.length>7) localStorage.removeItem(ks.shift()); }catch(e){} }
 let stateVersion = loadSync().stateVersion || 0;
 
 async function saveState(){ cacheLocal(); schedulePush(); }
@@ -1000,6 +1068,12 @@ async function loadState(){
   }
   if(!STATE.stock) STATE.stock={};
   if(!STATE.workers) STATE.workers={};
+  if(!STATE.roster) STATE.roster=[];
+  if(STATE.roster.length===0 && STATE.workers && Object.keys(STATE.workers).length){
+    const seen={};
+    Object.entries(STATE.workers).forEach(([cid,nm])=>{ const k=String(nm).toLowerCase(); if(seen[k])return; seen[k]=1;
+      STATE.roster.push({id:uid(),name:String(nm),pin:'',cardId:String(cid).indexOf('manual-')===0?'':String(cid)}); });
+  }
   if(!STATE.shifts) STATE.shifts=[];
   if(!STATE.exportBox) STATE.exportBox={contents:{},started:''};
   if(!STATE.exportLog) STATE.exportLog=[];
@@ -1009,8 +1083,8 @@ async function loadState(){
 
 function rerenderCurrent(){
   renderTabs();
-  const m = {dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
-    inv:renderInv,ship:renderShip,work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null),stats:(typeof renderStats==='function'?renderStats:null)};
+  const m = {dash:renderDash,orders:renderOrders,make:renderProd,prod:renderProd,
+    inv:renderInv,curing:(typeof renderCuring==='function'?renderCuring:null),ship:renderShip,work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null),stats:(typeof renderStats==='function'?renderStats:null)};
   const f = m[CURRENT_TAB]; if(f) f();
 }
 
@@ -1047,12 +1121,12 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts','exportBox','exportLog','boxStock'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
@@ -1182,30 +1256,38 @@ async function activateReader(){
     const p=document.getElementById('loginPrompt'); if(p) p.textContent='Reader active — scan your card to start';
   }catch(err){ const p=document.getElementById('loginPrompt'); if(p) p.textContent='Could not start the card reader — tap to retry.'; }
 }
+let _regCardFor=null;
+function workerById(id){ return (STATE.roster||[]).find(w=>w.id===id); }
+function workerByCard(cardId){ return (STATE.roster||[]).find(w=>w.cardId===cardId); }
 function handleCard(cardId){
   if(!cardId) return;
+  if(_regCardFor){                                   // linking a card to a worker (Manage team)
+    const w=workerById(_regCardFor); _regCardFor=null;
+    if(w){
+      (STATE.roster||[]).forEach(x=>{ if(x.cardId===cardId) x.cardId=''; });   // a card belongs to one worker
+      w.cardId=cardId; saveState(); if(typeof pushState==='function') pushState();
+      toast('Card linked to '+w.name); renderRoster();
+    }
+    return;
+  }
   if(ACTIVE){
     const pm=document.getElementById('punchModal');
     if(pm && pm.style.display!=='none') confirmPunchOut();
     return;
   }
-  let name=(STATE.workers||{})[cardId];
-  if(!name){
-    name=prompt('New card. Enter the worker\'s name:');
-    if(!name||!name.trim()) return;
-    STATE.workers=STATE.workers||{}; STATE.workers[cardId]=name.trim(); saveState();
-  }
-  punchIn(cardId,name);
+  const w=workerByCard(cardId);
+  if(!w){ const p=document.getElementById('loginPrompt'); if(p) p.textContent='Card not recognized — ask the manager to add it under “Manage team”.'; return; }
+  punchIn(w);
 }
-function punchIn(cardId,name){
+function punchIn(w){
   STATE.shifts=STATE.shifts||[];
-  const sh={id:uid(),cardId,name,in:new Date().toISOString(),out:null,mins:0};
+  const sh={id:uid(),workerId:w.id,cardId:w.cardId||'',name:w.name,in:new Date().toISOString(),out:null,mins:0};
   STATE.shifts.push(sh);
-  ACTIVE={cardId,name,shiftId:sh.id};
+  ACTIVE={workerId:w.id,name:w.name,cardId:w.cardId||'',shiftId:sh.id};
   document.body.classList.add('in');
-  const w=document.getElementById('activeWorker'); if(w) w.textContent='● '+name;
-  saveState(); renderTabs(); switchTab(START_TAB);
-  toast('Welcome, '+name);
+  const el=document.getElementById('activeWorker'); if(el) el.textContent='● '+w.name;
+  saveState(); if(typeof pushState==='function') pushState(); renderTabs(); switchTab(START_TAB);
+  toast('Welcome, '+w.name);
 }
 function openPunch(){ if(!ACTIVE) return; const w=document.getElementById('punchWho'); if(w) w.textContent=ACTIVE.name+' — scan your card or confirm'; document.getElementById('punchModal').style.display='flex'; }
 function closePunch(){ document.getElementById('punchModal').style.display='none'; }
@@ -1213,17 +1295,85 @@ function confirmPunchOut(){
   if(!ACTIVE){ closePunch(); return; }
   const sh=(STATE.shifts||[]).find(x=>x.id===ACTIVE.shiftId);
   if(sh){ sh.out=new Date().toISOString(); sh.mins=Math.max(0,Math.round((new Date(sh.out)-new Date(sh.in))/60000)); }
-  saveState();
+  saveState(); if(typeof pushState==='function') pushState();
   ACTIVE=null; const w=document.getElementById('activeWorker'); if(w) w.textContent='';
   closePunch(); document.body.classList.remove('in'); toast('Punched out');
 }
-function manualSignIn(){
-  const known=Object.values(STATE.workers||{});
-  let name=prompt('Sign in — enter your name'+(known.length?' ('+known.slice(0,4).join(', ')+')':'')+':');
-  if(!name||!name.trim()) return; name=name.trim();
-  let cardId=Object.keys(STATE.workers||{}).find(k=>STATE.workers[k].toLowerCase()===name.toLowerCase());
-  if(!cardId){ cardId='manual-'+name.toLowerCase().replace(/\s+/g,''); STATE.workers=STATE.workers||{}; STATE.workers[cardId]=name; }
-  punchIn(cardId,name);
+/* ---- worker sign-in: pick from roster + PIN (no free-text names) ---- */
+function openSigninModal(){
+  const roster=(STATE.roster||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const m=document.getElementById('signinModal'); if(!m) return;
+  if(!roster.length){ toast('No workers yet — tap “Manage team” to add one.'); return; }
+  const sel=m.querySelector('#signinSel'), err=m.querySelector('#signinErr'), pin=m.querySelector('#signinPin');
+  sel.innerHTML=roster.map(w=>`<option value="${w.id}">${w.name}</option>`).join('');
+  if(pin) pin.value=''; if(err) err.style.display='none';
+  m.style.display='flex'; setTimeout(()=>{ if(pin) pin.focus(); },60);
+}
+function closeSignin(){ const m=document.getElementById('signinModal'); if(m) m.style.display='none'; }
+function doSignin(){
+  const m=document.getElementById('signinModal'); if(!m) return;
+  const id=m.querySelector('#signinSel').value;
+  const pin=(m.querySelector('#signinPin').value||'').trim();
+  const err=m.querySelector('#signinErr');
+  const w=workerById(id); if(!w) return;
+  if(!w.pin){ if(err){ err.textContent='No PIN set for '+w.name+' — set one in Manage team.'; err.style.display='block'; } return; }
+  if(String(w.pin)!==pin){ if(err){ err.textContent='Wrong PIN. Try again.'; err.style.display='block'; } if(m.querySelector('#signinPin')) m.querySelector('#signinPin').value=''; return; }
+  closeSignin(); punchIn(w);
+}
+/* ---- Manage team: manager-controlled roster (name + PIN + linked NFC card) ---- */
+function openRoster(){ renderRoster(); const m=document.getElementById('rosterModal'); if(m) m.style.display='flex'; }
+function closeRoster(){ _regCardFor=null; const m=document.getElementById('rosterModal'); if(m) m.style.display='none'; }
+function renderRoster(){
+  const m=document.getElementById('rosterModal'); if(!m) return;
+  const roster=(STATE.roster||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const rows=roster.map(w=>`<tr>
+    <td><strong>${w.name}</strong></td>
+    <td class="right">${w.pin?'PIN ••••':'<span style="color:#b3261e">no PIN</span>'}</td>
+    <td class="right">${w.cardId?'card ✓':'<span class="muted">no card</span>'}</td>
+    <td class="right">
+      <button class="btn sm ghost" onclick="editWorker('${w.id}')">Edit</button>
+      <button class="btn sm ghost" onclick="registerCard('${w.id}')">${w.cardId?'Re-link card':'Link card'}</button>
+      <button class="btn sm ghost" onclick="removeWorker('${w.id}')">Remove</button>
+    </td></tr>`).join('');
+  m.querySelector('#rosterBody').innerHTML=`
+    <div class="row" style="gap:8px;align-items:flex-end">
+      <label class="fld" style="flex:2"><span>Worker name</span><input id="rwName" placeholder="e.g. Rose Costorio"></label>
+      <label class="fld" style="flex:1"><span>PIN (4–6 digits)</span><input id="rwPin" inputmode="numeric" maxlength="6" placeholder="1234"></label>
+      <button class="btn gold" onclick="addWorker()">+ Add</button>
+    </div>
+    ${_regCardFor?`<p class="muted" style="color:var(--teal);margin-top:8px">● Scan the card now to link it…</p>`:''}
+    <table style="margin-top:12px"><thead><tr><th>Worker</th><th class="right">PIN</th><th class="right">Card</th><th class="right">Manage</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="4" class="muted">No workers yet — add your first above.</td></tr>'}</tbody></table>`;
+}
+function addWorker(){
+  const m=document.getElementById('rosterModal');
+  const name=(m.querySelector('#rwName').value||'').trim();
+  const pin=(m.querySelector('#rwPin').value||'').trim();
+  if(!name){ toast('Enter a name'); return; }
+  if(!/^\d{4,6}$/.test(pin)){ toast('PIN must be 4–6 digits'); return; }
+  if((STATE.roster||[]).some(w=>w.name.toLowerCase()===name.toLowerCase())){ toast('That name already exists'); return; }
+  STATE.roster=STATE.roster||[]; STATE.roster.push({id:uid(),name,pin,cardId:''});
+  saveState(); if(typeof pushState==='function') pushState(); renderRoster(); toast(name+' added');
+}
+function editWorker(id){
+  const w=workerById(id); if(!w) return;
+  const name=prompt('Worker name:', w.name); if(name===null) return;
+  const pin=prompt('PIN (4–6 digits):', w.pin||''); if(pin===null) return;
+  if(name.trim()) w.name=name.trim();
+  if(/^\d{4,6}$/.test((pin||'').trim())) w.pin=pin.trim();
+  else if((pin||'').trim()!=='') toast('PIN unchanged — must be 4–6 digits');
+  saveState(); if(typeof pushState==='function') pushState(); renderRoster();
+}
+function removeWorker(id){
+  const w=workerById(id); if(!w) return;
+  if(!confirm('Remove '+w.name+' from the team?')) return;
+  STATE.roster=(STATE.roster||[]).filter(x=>x.id!==id);
+  saveState(); if(typeof pushState==='function') pushState(); renderRoster();
+}
+function registerCard(id){
+  _regCardFor=id; const w=workerById(id);
+  if(!('NDEFReader' in window)){ toast('No card reader here — link cards on a workshop tablet.'); _regCardFor=null; return; }
+  activateReader(); toast('Scan the card now for '+(w?w.name:'this worker')); renderRoster();
 }
 
 /* ---- manager sign-in gate ---- */
@@ -1401,7 +1551,9 @@ function renderSettings(){
    ============================================================ */
 function weekStart(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setHours(0,0,0,0); x.setDate(x.getDate()-day); return x; }
 function renderStats(){
-  const shifts=STATE.shifts||[]; const now=Date.now();
+  const now=Date.now();
+  const me=(typeof ACTIVE!=='undefined'&&ACTIVE&&(typeof ROLE==='undefined'||ROLE!=='owner'))?ACTIVE.name:null;
+  let shifts=STATE.shifts||[]; if(me) shifts=shifts.filter(s=>s.name===me);
   const open=shifts.filter(s=>!s.out);
   const t2=(d)=>new Date(d).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit'});
   const openRows=open.map(s=>{const el=Math.round((now-new Date(s.in).getTime())/60000);return `<tr><td><strong>${s.name}</strong></td><td>${t2(s.in)}</td><td class="right">${(el/60).toFixed(1)} h</td></tr>`;}).join('');
@@ -1428,7 +1580,7 @@ function renderStats(){
 
   // ---- this week's batches ----
   const inWeek=b=>{ const d=b.curedAt||b.started; return d && new Date(d).getTime()>=wkMs; };
-  const made=STATE.batches.filter(b=>['cure','ready','shipped'].indexOf(b.status)>=0 && b.madeBy && inWeek(b));
+  const made=STATE.batches.filter(b=>['cure','ready','shipped'].indexOf(b.status)>=0 && b.madeBy && inWeek(b) && (!me||b.madeBy===me));
   const agg={};
   made.forEach(b=>{ const w=agg[b.madeBy]||(agg[b.madeBy]={batches:0,bars:0,setup:0,make:0,clean:0});
     w.batches++; w.bars+=b.qty||0; w.setup+=b.setupMin||0; w.make+=b.makeMin||0; w.clean+=b.cleanupMin||0; });
@@ -1445,7 +1597,7 @@ function renderStats(){
   };
 
   $('#view-stats').innerHTML=`
-    <div class="page-head"><div><h2>Stats</h2><p>This work week (Mon–Sat), starting ${wkDate}. Keep your times sharp and your batches clean.</p></div></div>
+    <div class="page-head"><div><h2>${me?'Your stats':'Stats'}</h2><p>${me?me+' — this work week (Mon–Sat) from '+wkDate+'. Keep your times sharp and your batches clean.':'This work week (Mon–Sat), starting '+wkDate+'. Keep your times sharp and your batches clean.'}</p></div></div>
     <div class="card"><h3>Currently working <span class="muted">(${open.length})</span></h3>
       ${open.length?`<table><thead><tr><th>Worker</th><th>Punched in</th><th class="right">Elapsed</th></tr></thead><tbody>${openRows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>No one is punched in.</div>`}
     </div>
@@ -1458,9 +1610,9 @@ function renderStats(){
 }
 const TABS = [
   {id:'orders', label:'Orders'},
-  {id:'make', label:'Make List'},
   {id:'prod', label:'Production'},
   {id:'inv', label:'Inventory'},
+  {id:'curing', label:'Curing'},
   {id:'ship', label:'Export'},
   {id:'stats', label:'Stats'},
   {id:'settings', label:'Settings', owner:true},
@@ -1471,15 +1623,15 @@ function setRole(r){
   $('#roleProd').classList.toggle('active',r==='prod');
   renderTabs();
   // if production role lands on an owner-only tab, bounce to make list
-  if(r==='prod' && CURRENT_TAB==='dash') switchTab('make');
+  if(r==='prod' && CURRENT_TAB==='dash') switchTab('prod');
   else switchTab(CURRENT_TAB);
 }
 function renderTabs(){
   const openOrders = STATE.orders.filter(o=>o.status!=='shipped').length;
-  const toMake = STATE.batches.filter(b=>b.status==='make').length
-               + neededBatches().length;
+  const prodNeeded = totalBatchesNeeded();
+  const curingCount = STATE.batches.filter(b=>b.status==='cure').length;
   const ready = STATE.batches.filter(b=>b.status==='ready').length;
-  const c = {orders:openOrders, make:toMake, ship:ready};
+  const c = {orders:openOrders, prod:prodNeeded, curing:curingCount, ship:ready};
   $('#tabs').innerHTML = TABS.filter(t=>!(t.owner && ROLE!=='owner')).map(t=>{
     const badge = c[t.id]? `<span class="badge">${c[t.id]}</span>`:'';
     return `<button class="${t.id===CURRENT_TAB?'active':''}" onclick="switchTab('${t.id}')">${t.label}${badge}</button>`;
@@ -1490,9 +1642,7 @@ function switchTab(id){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const v=$('#view-'+id); if(v) v.classList.add('active');
   renderTabs();
-  ({dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
-    inv:renderInv,ship:renderShip,work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{}),stats:(typeof renderStats==='function'?renderStats:()=>{})}[id]||(()=>{}))();
+  ({dash:renderDash,orders:renderOrders,make:renderProd,prod:renderProd,
+    inv:renderInv,curing:(typeof renderCuring==='function'?renderCuring:()=>{}),ship:renderShip,work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{}),stats:(typeof renderStats==='function'?renderStats:()=>{})}[id]||(()=>{}))();
 }
 </script>
-</body>
-</html>
