@@ -993,9 +993,13 @@ function renderPackWizard(){
 }
 const BOX_CAP=150;
 function producedMap(){
-  const m={}; const c=(STATE.exportBox&&STATE.exportBox.contents)||{};
-  Object.entries(c).forEach(([k,q])=>m[k]=(m[k]||0)+q);
-  (STATE.exportLog||[]).forEach(b=>Object.entries(b.contents||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q));
+  // available finished bars: box being filled (PH) + boxes still in transit + Canada stock on hand.
+  // Received boxes have already been added to STATE.stock, and sold bars have left it, so we
+  // count unreceived exportLog + stock (never both) — this excludes bars already sold to customers.
+  const m={}, add=o=>Object.entries(o||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q);
+  add((STATE.exportBox&&STATE.exportBox.contents)||{});
+  (STATE.exportLog||[]).forEach(b=>{ if(!b.received) add(b.contents); });
+  add(STATE.stock||{});
   return m;
 }
 function boxTotal(){ const c=(STATE.exportBox&&STATE.exportBox.contents)||{}; return Object.values(c).reduce((s,q)=>s+q,0); }

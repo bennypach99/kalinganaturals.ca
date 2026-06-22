@@ -364,6 +364,7 @@ const daysSince = d=>Math.floor((Date.now()-new Date(d).getTime())/86400000);
 /* ============================================================
    DASHBOARD (owner)
    ============================================================ */
+function weekStart(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setHours(0,0,0,0); x.setDate(x.getDate()-day); return x; }
 function renderDash(){
   const orders=STATE.orders;
   const shipped=orders.filter(o=>o.status==='shipped');
@@ -386,6 +387,17 @@ function renderDash(){
       rev:sold*PRODUCTS[pk].priceCAD, profit:sold*barProfitCAD(pk)};
   }).sort((a,b)=>b.rev-a.rev);
 
+  const lowItems=(typeof allSupplyKeys==='function'?allSupplyKeys():Object.keys(allIngredients())).filter(k=>{ const lvl=(STATE.reorder||{})[k]||0; return lvl>0 && (typeof supplyOnHand==='function'?supplyOnHand(k):(STATE.inventory[k]||0))<=lvl; });
+  const openPOs=(STATE.pos||[]).filter(p=>p.status!=='received');
+  const restockCount=(STATE.restock||[]).length;
+  const _wk=weekStart(new Date()), _wkMs=_wk.getTime(), _days=['Mon','Tue','Wed','Thu','Fri','Sat'];
+  const _grid={}; (STATE.shifts||[]).forEach(s=>{ const inD=new Date(s.in), endMs=s.out?new Date(s.out).getTime():Date.now(); if(endMs<_wkMs) return; const di=Math.floor((new Date(inD).setHours(0,0,0,0)-_wkMs)/86400000); if(di<0||di>5) return; const mins=s.out?(s.mins||Math.round((endMs-inD.getTime())/60000)):Math.round((Date.now()-inD.getTime())/60000); (_grid[s.name]||(_grid[s.name]=[0,0,0,0,0,0]))[di]+=mins; });
+  const _fmt=m=>m?(m/60).toFixed(1):'·';
+  const wkRows=Object.entries(_grid).sort((a,b)=>b[1].reduce((x,y)=>x+y,0)-a[1].reduce((x,y)=>x+y,0)).map(([n,arr])=>{const tot=arr.reduce((x,y)=>x+y,0);return `<tr><td><strong>${n}</strong></td>${arr.map(m=>`<td class="right">${_fmt(m)}</td>`).join('')}<td class="right"><strong>${(tot/60).toFixed(1)}h</strong></td></tr>`;}).join('');
+  const _inWeek=b=>{ const d=b.curedAt||b.started; return d && new Date(d).getTime()>=_wkMs; };
+  const _made=STATE.batches.filter(b=>['cure','ready','shipped'].indexOf(b.status)>=0 && b.madeBy && _inWeek(b));
+  const _agg={}; _made.forEach(b=>{ const w=_agg[b.madeBy]||(_agg[b.madeBy]={batches:0,bars:0,min:0}); w.batches++; w.bars+=b.qty||0; w.min+=b.minutes||0; });
+  const prodRows=Object.entries(_agg).sort((a,b)=>b[1].bars-a[1].bars).map(([n,w])=>`<tr><td><strong>${n}</strong></td><td class="right">${w.batches}</td><td class="right">${w.bars}</td><td class="right">${w.batches?Math.round(w.min/w.batches):0} min</td></tr>`).join('');
   $('#view-dash').innerHTML=`
     <div class="page-head"><div>
       <h2>Dashboard</h2><p>Live view of revenue, profit, and what's in the pipeline.</p>
@@ -418,7 +430,22 @@ function renderDash(){
             <td class="right">${cad(p)}</td><td class="right" style="font-weight:700;color:${m>50?'var(--ok)':'var(--warn)'}">${m.toFixed(0)}%</td></tr>`;
         }).join('')}</tbody></table>
         <p class="muted" style="margin-top:10px">Cost = ingredients + labour (${php(LABOUR_PHP_PER_BAR)}) + packaging (${php(PACKAGING_PHP_PER_BAR)}) + shipping (${php(SHIPPING_PHP_PER_BAR)}), converted at ₱${FX}/$1.</p>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><h3>Needs attention</h3>
+        <ul style="margin:6px 0 0 18px;line-height:1.9">
+          ${lowItems.length?`<li><strong>${lowItems.length}</strong> item${lowItems.length>1?'s':''} low on stock${restockCount?` · ${restockCount} on the restock list`:''}</li>`:''}
+          ${openPOs.length?`<li><strong>${openPOs.length}</strong> open purchase order${openPOs.length>1?'s':''}</li>`:''}
+          ${open.length?`<li><strong>${open.length}</strong> order${open.length>1?'s':''} to fulfil</li>`:''}
+          ${(!lowItems.length&&!openPOs.length&&!open.length)?'<li class="muted">All clear \U0001F389</li>':''}
+        </ul>
       </div>
+      <div class="card"><h3>Production this week — by worker</h3>
+        ${prodRows?`<table><thead><tr><th>Worker</th><th class="right">Batches</th><th class="right">Bars</th><th class="right">Avg/batch</th></tr></thead><tbody>${prodRows}</tbody></table>`:emptyMini('No production logged this week')}
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px"><h3>Hours this week (Mon–Sat)</h3>
+      ${wkRows?`<table><thead><tr><th>Worker</th>${_days.map(d=>`<th class="right">${d}</th>`).join('')}<th class="right">Total</th></tr></thead><tbody>${wkRows}</tbody></table>`:`<p class="muted">No hours recorded this week.</p>`}
     </div>`;
 }
 function emptyMini(t){return `<div class="empty"><div class="big">◇</div>${t}</div>`;}
@@ -538,9 +565,13 @@ function delOrder(id){
    ============================================================ */
 const BATCH_SIZE=60;
 function producedMap(){
-  const m={}; const c=(STATE.exportBox&&STATE.exportBox.contents)||{};
-  Object.entries(c).forEach(([k,q])=>m[k]=(m[k]||0)+q);
-  (STATE.exportLog||[]).forEach(b=>Object.entries(b.contents||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q));
+  // available finished bars: box being filled (PH) + boxes still in transit + Canada stock on hand.
+  // Received boxes have already been added to STATE.stock, and sold bars have left it, so we
+  // count unreceived exportLog + stock (never both) — this excludes bars already sold to customers.
+  const m={}, add=o=>Object.entries(o||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q);
+  add((STATE.exportBox&&STATE.exportBox.contents)||{});
+  (STATE.exportLog||[]).forEach(b=>{ if(!b.received) add(b.contents); });
+  add(STATE.stock||{});
   return m;
 }
 function computeNeed(){
