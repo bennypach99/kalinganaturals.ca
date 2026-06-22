@@ -165,7 +165,20 @@
     <div class="login-date" id="loginDate"></div>
     <div class="login-prompt" id="loginPrompt">Tap the screen, then scan your card to start</div>
     <button class="login-manual" id="loginManual" onclick="event.stopPropagation();openSigninModal()">No card? Sign in with PIN</button>
-    <button class="login-manual" id="loginManage" style="margin-top:8px;opacity:.75;font-size:13px" onclick="event.stopPropagation();openRoster()">Manage team</button>
+    <button class="login-manual" id="loginManage" style="margin-top:8px;opacity:.75;font-size:13px" onclick="event.stopPropagation();requireManager(openRoster)">Manage team</button>
+  </div>
+</div>
+<div id="mgrModal" class="pm" style="display:none">
+  <div class="pm-box">
+    <h3 style="margin-bottom:6px">Manager PIN</h3>
+    <p class="muted">Enter a manager PIN to unlock manager tools.</p>
+    <label class="fld" style="text-align:left;margin-top:10px"><span>PIN</span>
+      <input id="mgrPin" type="password" inputmode="numeric" maxlength="6" placeholder="****" onkeydown="if(event.key==='Enter')submitMgrPin()"></label>
+    <p id="mgrErr" style="color:#b3261e;font-size:13px;margin-top:10px;display:none"></p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+      <button class="btn ghost" onclick="closeMgrModal()">Cancel</button>
+      <button class="btn gold" onclick="submitMgrPin()">Unlock</button>
+    </div>
   </div>
 </div>
 <div id="signinModal" class="pm" style="display:none">
@@ -228,6 +241,8 @@
   <div class="view" id="view-inv"></div>
   <!-- CURING -->
   <div class="view" id="view-curing"></div>
+  <div class="view" id="view-suppliers"></div>
+  <div class="view" id="view-restock"></div>
   <!-- SHIPMENTS -->
   <div class="view" id="view-ship"></div>
   <div class="view" id="view-stats"></div>
@@ -375,6 +390,12 @@ let STATE = {
   workers:{},     // {cardId: name} legacy map (kept for migration)
   roster:[],      // [{id,name,pin,cardId}] worker roster (synced)
   shifts:[],      // [{id,cardId,name,in,out,mins}] punch records (synced)
+  suppliers:[],   // [{id,name,phone,address,email,account,note,items:[{key,packSize,minOrder}]}] (synced)
+  restock:[],     // [{id,key,supplierId,reason,created}] items to reorder (synced)
+  pos:[],         // [{id,num,supplierId,items:[{key,qty,packs}],status,created,sent,received}] (synced)
+  reorder:{},     // {supplyKey: reorder level} (synced)
+  itemSupplier:{},// {supplyKey: supplierId} chosen supplier per item (synced)
+  supplies:{},    // {key:{name,qty}} non-ingredient supplies e.g. labels/wrap (synced)
 };
 
 let CURRENT_TAB = 'dash';
@@ -1058,7 +1079,7 @@ function cacheLocal(){ try{ const s=JSON.stringify(STATE); localStorage.setItem(
 function pruneSnaps(){ try{ const ks=Object.keys(localStorage).filter(k=>k.indexOf(SKEY+':day:')===0).sort(); while(ks.length>7) localStorage.removeItem(ks.shift()); }catch(e){} }
 let stateVersion = loadSync().stateVersion || 0;
 
-async function saveState(){ cacheLocal(); schedulePush(); }
+async function saveState(){ stampChanges(); cacheLocal(); schedulePush(); }
 async function loadState(){
   try{ const r = localStorage.getItem(SKEY); if(r){ STATE = Object.assign(STATE, JSON.parse(r)); } }catch(e){}
   if(Object.keys(STATE.inventory).length===0){
@@ -1069,6 +1090,12 @@ async function loadState(){
   if(!STATE.stock) STATE.stock={};
   if(!STATE.workers) STATE.workers={};
   if(!STATE.roster) STATE.roster=[];
+  if(!STATE.suppliers) STATE.suppliers=[];
+  if(!STATE.restock) STATE.restock=[];
+  if(!STATE.pos) STATE.pos=[];
+  if(!STATE.reorder) STATE.reorder={};
+  if(!STATE.itemSupplier) STATE.itemSupplier={};
+  if(!STATE.supplies) STATE.supplies={};
   if(STATE.roster.length===0 && STATE.workers && Object.keys(STATE.workers).length){
     const seen={};
     Object.entries(STATE.workers).forEach(([cid,nm])=>{ const k=String(nm).toLowerCase(); if(seen[k])return; seen[k]=1;
@@ -1084,7 +1111,7 @@ async function loadState(){
 function rerenderCurrent(){
   renderTabs();
   const m = {dash:renderDash,orders:renderOrders,make:renderProd,prod:renderProd,
-    inv:renderInv,curing:(typeof renderCuring==='function'?renderCuring:null),ship:renderShip,work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null),stats:(typeof renderStats==='function'?renderStats:null)};
+    inv:renderInv,curing:(typeof renderCuring==='function'?renderCuring:null),suppliers:(typeof renderSuppliers==='function'?renderSuppliers:null),restock:(typeof renderRestock==='function'?renderRestock:null),ship:renderShip,work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null),stats:(typeof renderStats==='function'?renderStats:null)};
   const f = m[CURRENT_TAB]; if(f) f();
 }
 
@@ -1121,33 +1148,31 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
 function snapshot(){ const o={}; SYNC_AREAS.forEach(a=>{ o[a]=JSON.stringify(STATE[a]); }); return o; }
-// ---- per-record auto-merge (multi-station safe) ----
+// ---- timestamped per-record merge (newest record wins; offline edits survive) ----
+const LIST_AREAS = ['batches','shifts','deliveries','exportLog','roster','suppliers','restock','pos'];
 function _isObj(x){ return x && typeof x==='object' && !Array.isArray(x); }
 function _eq(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
-function mergeList(base, mine, theirs){
-  const baseArr=Array.isArray(base)?base:[];
-  const withId=arr=>arr.every(r=>r && r.id!=null);
-  if(!withId(mine) || !withId(theirs)) return theirs;
-  const bm={},mm={},tm={};
-  baseArr.forEach(r=>{ if(r&&r.id!=null) bm[r.id]=r; });
-  mine.forEach(r=>mm[r.id]=r); theirs.forEach(r=>tm[r.id]=r);
-  const ids=[...new Set([...mine.map(r=>r.id),...theirs.map(r=>r.id)])];
+function _stripU(r){ if(!_isObj(r)) return r; const o={}; for(const k in r){ if(k!=='_u') o[k]=r[k]; } return o; }
+function unionByU(mine, theirs, base){
+  const bm={}; (Array.isArray(base)?base:[]).forEach(r=>{ if(r&&r.id!=null) bm[r.id]=JSON.stringify(_stripU(r)); });
+  const mm={}, tm={}; (mine||[]).forEach(r=>{ if(r&&r.id!=null) mm[r.id]=r; }); (theirs||[]).forEach(r=>{ if(r&&r.id!=null) tm[r.id]=r; });
+  const ids=[...new Set([...Object.keys(mm),...Object.keys(tm)])];
   const out=[];
   ids.forEach(id=>{
     const b=bm[id], mr=mm[id], tr=tm[id];
-    if(mr&&tr){ out.push(merge3(b,mr,tr)); }
-    else if(mr&&!tr){ if(!(b&&_eq(b,mr))) out.push(mr); }   // keep unless theirs deleted an unchanged record
-    else if(!mr&&tr){ if(!(b&&_eq(b,tr))) out.push(tr); }
+    if(mr&&tr){ out.push(((mr._u||0) >= (tr._u||0)) ? mr : tr); }          // newest timestamp wins
+    else if(mr&&!tr){ if(!(b!==undefined && b===JSON.stringify(_stripU(mr)))) out.push(mr); }  // keep unless unchanged & deleted remotely
+    else if(tr&&!mr){ if(!(b!==undefined && b===JSON.stringify(_stripU(tr)))) out.push(tr); }  // keep unless deleted locally
   });
   out.sort((a,b)=>String(a.created||'').localeCompare(String(b.created||''))||String(a.id).localeCompare(String(b.id)));
   return out;
@@ -1162,23 +1187,37 @@ function merge3(base, mine, theirs){
   if(theirs===undefined) return mine;
   if(mine===undefined) return theirs;
   if(_eq(mine,theirs)) return mine;
-  if(_eq(mine,base)) return theirs;   // only the other device changed
-  if(_eq(theirs,base)) return mine;    // only this device changed
-  if(Array.isArray(mine)&&Array.isArray(theirs)) return mergeList(base,mine,theirs);
+  if(_eq(mine,base)) return theirs;
+  if(_eq(theirs,base)) return mine;
   if(_isObj(mine)&&_isObj(theirs)) return mergeObj(base,mine,theirs);
-  return theirs;                       // scalar both changed -> remote wins (deterministic)
+  return theirs;
 }
 function mergeServer(sv){
   let changed=false;
   SYNC_AREAS.forEach(a=>{
-    const base=_syncedSnap[a]!==undefined?JSON.parse(_syncedSnap[a]):undefined;
+    const theirs=sv?sv[a]:undefined; if(theirs===undefined) return;
     const mine=STATE[a];
-    const theirs=sv?sv[a]:undefined;
-    if(theirs===undefined) return;
-    const merged=merge3(base, mine, theirs);
+    let merged;
+    if(LIST_AREAS.indexOf(a)>=0 && Array.isArray(mine) && Array.isArray(theirs)){
+      const base=_syncedSnap[a]!==undefined?JSON.parse(_syncedSnap[a]):[];
+      merged=unionByU(mine, theirs, base);
+    } else {
+      const base=_syncedSnap[a]!==undefined?JSON.parse(_syncedSnap[a]):undefined;
+      merged=merge3(base, mine, theirs);
+    }
     if(!_eq(merged, mine)){ STATE[a]=merged; changed=true; }
   });
   return changed;
+}
+// record stamping: mark a record _u=now when its content changes locally
+let _stampPrev=null;
+function stampInit(){ _stampPrev={}; LIST_AREAS.forEach(a=>{ const m={}; (STATE[a]||[]).forEach(r=>{ if(r&&r.id!=null) m[r.id]=JSON.stringify(_stripU(r)); }); _stampPrev[a]=m; }); }
+function stampChanges(){
+  if(!_stampPrev) stampInit();
+  const now=Date.now();
+  LIST_AREAS.forEach(a=>{ const arr=STATE[a]; if(!Array.isArray(arr)) return; const prev=_stampPrev[a]||{}, cur={};
+    arr.forEach(r=>{ if(!r||r.id==null) return; const j=JSON.stringify(_stripU(r)); cur[r.id]=j; if(prev[r.id]!==j) r._u=now; });
+    _stampPrev[a]=cur; });
 }
 async function fetchServerState(){
   try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN,'X-Kalinga-Session':ADMIN_SESSION}});
@@ -1190,10 +1229,10 @@ async function pushState(){
   try{
     const d=await fetchServerState();
     const sv=d?d.value:null;
-    mergeServer(sv);                       // fold in any remote changes first, then write the union
+    mergeServer(sv);
     const r=await fetch(backendBase()+'/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify({value:productionPayload()})});
     if(r.ok){ const rd=await r.json(); if(rd&&rd.ok){ stateVersion=rd.version; const s=loadSync(); s.stateVersion=stateVersion; saveSync(s); } }
-    _syncedSnap=snapshot(); cacheLocal(); rerenderCurrent();
+    _syncedSnap=snapshot(); stampInit(); cacheLocal(); rerenderCurrent();
   }catch(e){} finally{ _pushing=false; }
 }
 async function pullState(){
@@ -1202,7 +1241,7 @@ async function pullState(){
   if(!d || !d.value) return;
   const changed=mergeServer(d.value);
   stateVersion=d.version;
-  _syncedSnap=snapshot();
+  _syncedSnap=snapshot(); stampInit();
   if(changed){ cacheLocal(); rerenderCurrent(); }
 }
 
@@ -1330,7 +1369,9 @@ function renderRoster(){
     <td><strong>${w.name}</strong></td>
     <td class="right">${w.pin?'PIN ••••':'<span style="color:#b3261e">no PIN</span>'}</td>
     <td class="right">${w.cardId?'card ✓':'<span class="muted">no card</span>'}</td>
+    <td class="right">${w.mgr?'<span class="pill ready">manager</span>':'<span class="muted">worker</span>'}</td>
     <td class="right">
+      <button class="btn sm ghost" onclick="toggleMgr('${w.id}')">${w.mgr?'Unset mgr':'Make mgr'}</button>
       <button class="btn sm ghost" onclick="editWorker('${w.id}')">Edit</button>
       <button class="btn sm ghost" onclick="registerCard('${w.id}')">${w.cardId?'Re-link card':'Link card'}</button>
       <button class="btn sm ghost" onclick="removeWorker('${w.id}')">Remove</button>
@@ -1342,8 +1383,8 @@ function renderRoster(){
       <button class="btn gold" onclick="addWorker()">+ Add</button>
     </div>
     ${_regCardFor?`<p class="muted" style="color:var(--teal);margin-top:8px">● Scan the card now to link it…</p>`:''}
-    <table style="margin-top:12px"><thead><tr><th>Worker</th><th class="right">PIN</th><th class="right">Card</th><th class="right">Manage</th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="4" class="muted">No workers yet — add your first above.</td></tr>'}</tbody></table>`;
+    <table style="margin-top:12px"><thead><tr><th>Worker</th><th class="right">PIN</th><th class="right">Card</th><th class="right">Role</th><th class="right">Manage</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" class="muted">No workers yet — add your first above.</td></tr>'}</tbody></table>`;
 }
 function addWorker(){
   const m=document.getElementById('rosterModal');
@@ -1376,6 +1417,130 @@ function registerCard(id){
   activateReader(); toast('Scan the card now for '+(w?w.name:'this worker')); renderRoster();
 }
 
+/* ============================================================
+   SUPPLIERS  (manager-only)
+   ============================================================ */
+function supplyName(key){
+  if(key==='box') return 'Export box';
+  const ing=allIngredients()[key]; if(ing) return ing.name;
+  if(STATE.supplies&&STATE.supplies[key]) return STATE.supplies[key].name;
+  return key;
+}
+function supplyKeyOptions(selected){
+  const ing=Object.values(allIngredients()).map(i=>({key:i.key,name:i.name}));
+  const all=ing.concat([{key:'box',name:'Export box'}]).concat(Object.entries(STATE.supplies||{}).map(([k,v])=>({key:k,name:v.name})));
+  return all.map(o=>`<option value="${o.key}" ${o.key===selected?'selected':''}>${o.name}</option>`).join('');
+}
+function supplierById(id){ return (STATE.suppliers||[]).find(x=>x.id===id); }
+function renderSuppliers(){
+  const sups=(STATE.suppliers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const cards=sups.map(s=>{
+    const itemRows=(s.items||[]).map(it=>`<tr>
+      <td>${supplyName(it.key)}</td>
+      <td class="right">${it.packSize||1}</td>
+      <td class="right">${it.minOrder||0}</td>
+      <td class="right no-print"><button class="btn sm ghost" onclick="editSupItem('${s.id}','${it.key}')">Edit</button> <button class="btn sm ghost" onclick="removeSupItem('${s.id}','${it.key}')">✕</button></td>
+    </tr>`).join('');
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div><h3 style="margin-bottom:2px">${s.name}</h3>
+          <div class="muted">${[s.phone,s.email].filter(Boolean).join(' · ')||'—'}</div></div>
+        <div class="no-print"><button class="btn sm ghost" onclick="editSupplier('${s.id}')">Edit</button> <button class="btn sm ghost" onclick="deleteSupplier('${s.id}')">Delete</button></div>
+      </div>
+      <div class="muted" style="margin-top:6px">${s.address||''}${s.account?` · Acct ${s.account}`:''}${s.note?`<br>${s.note}`:''}</div>
+      <div class="divider"></div>
+      <h4 style="margin:6px 0">Supplies</h4>
+      ${(s.items&&s.items.length)?`<table><thead><tr><th>Item</th><th class="right">Sold in (pack)</th><th class="right">Min order</th><th class="no-print"></th></tr></thead><tbody>${itemRows}</tbody></table>`:`<p class="muted">No items yet — add what they supply below.</p>`}
+      <div class="no-print row" style="gap:8px;align-items:flex-end;margin-top:10px">
+        <label class="fld" style="flex:2"><span>Add item</span><select id="si-key-${s.id}">${supplyKeyOptions()}</select></label>
+        <label class="fld" style="flex:1"><span>Pack size</span><input id="si-pack-${s.id}" type="number" min="1" value="1"></label>
+        <label class="fld" style="flex:1"><span>Min order</span><input id="si-min-${s.id}" type="number" min="0" value="0"></label>
+        <button class="btn gold" onclick="addSupItem('${s.id}')">+ Add</button>
+      </div>
+    </div>`;
+  }).join('');
+  $('#view-suppliers').innerHTML=`
+    <div class="page-head"><div><h2>Suppliers</h2><p>Your vendors and what they supply. <strong>Pack size</strong> is the increment orders round up to; <strong>min order</strong> is their minimum quantity.</p></div></div>
+    <div class="card no-print"><h3>Add a supplier</h3>
+      <div class="row" style="gap:8px">
+        <label class="fld" style="flex:2"><span>Name</span><input id="sup_name" placeholder="e.g. Manila Oils Trading"></label>
+        <label class="fld" style="flex:1"><span>Phone</span><input id="sup_phone"></label>
+        <label class="fld" style="flex:2"><span>Email</span><input id="sup_email" type="email"></label>
+      </div>
+      <div class="row" style="gap:8px">
+        <label class="fld" style="flex:3"><span>Address</span><input id="sup_addr"></label>
+        <label class="fld" style="flex:1"><span>Account / ID #</span><input id="sup_acct"></label>
+      </div>
+      <label class="fld"><span>Note</span><input id="sup_note" placeholder="terms, contact person, etc."></label>
+      <button class="btn gold" onclick="addSupplier()">+ Add supplier</button>
+    </div>
+    ${sups.length?`<div class="grid g2">${cards}</div>`:`<div class="card"><div class="empty"><div class="big">◇</div>No suppliers yet — add your first above.</div></div>`}`;
+}
+function addSupplier(){
+  const g=id=>{const e=$('#'+id);return e?e.value.trim():'';};
+  const name=g('sup_name'); if(!name){ toast('Enter a supplier name'); return; }
+  STATE.suppliers=STATE.suppliers||[];
+  STATE.suppliers.push({id:uid(), name, phone:g('sup_phone'), email:g('sup_email'), address:g('sup_addr'), account:g('sup_acct'), note:g('sup_note'), items:[]});
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(name+' added');
+}
+function editSupplier(id){
+  const s=supplierById(id); if(!s) return;
+  const f=(label,cur)=>{ const v=prompt(label,cur||''); return v===null?cur:v.trim(); };
+  const nm=f('Name', s.name); if(nm) s.name=nm;
+  s.phone=f('Phone', s.phone); s.email=f('Email', s.email);
+  s.address=f('Address', s.address); s.account=f('Account / ID #', s.account); s.note=f('Note', s.note);
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+function deleteSupplier(id){
+  const s=supplierById(id); if(!s) return;
+  if(!confirm('Delete supplier '+s.name+'?')) return;
+  STATE.suppliers=(STATE.suppliers||[]).filter(x=>x.id!==id);
+  Object.keys(STATE.itemSupplier||{}).forEach(k=>{ if(STATE.itemSupplier[k]===id) delete STATE.itemSupplier[k]; });
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+function addSupItem(sid){
+  const s=supplierById(sid); if(!s) return;
+  const key=$('#si-key-'+sid).value;
+  const pack=Math.max(1,parseInt($('#si-pack-'+sid).value)||1);
+  const min=Math.max(0,parseInt($('#si-min-'+sid).value)||0);
+  s.items=s.items||[];
+  if(s.items.some(it=>it.key===key)){ toast('Already listed for this supplier'); return; }
+  s.items.push({key, packSize:pack, minOrder:min});
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(supplyName(key)+' added');
+}
+function editSupItem(sid,key){
+  const s=supplierById(sid); if(!s) return;
+  const it=(s.items||[]).find(i=>i.key===key); if(!it) return;
+  const pack=prompt('Pack size (orders round up to this increment):', it.packSize||1); if(pack!==null && parseInt(pack)>0) it.packSize=parseInt(pack);
+  const min=prompt('Minimum order quantity:', it.minOrder||0); if(min!==null && parseInt(min)>=0) it.minOrder=parseInt(min);
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+function removeSupItem(sid,key){
+  const s=supplierById(sid); if(!s) return;
+  s.items=(s.items||[]).filter(i=>i.key!==key);
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+/* ---- manager mode (PIN-gated) ---- */
+let MANAGER=false, _mgrThen=null;
+function managers(){ return (STATE.roster||[]).filter(w=>w.mgr && w.pin); }
+function managersExist(){ return managers().length>0; }
+function isManagerUnlocked(){ return MANAGER || !managersExist(); }   // open until the first manager is set
+function requireManager(cb){ if(isManagerUnlocked()){ if(typeof cb==='function') cb(); return; } _mgrThen=cb||null; openMgrModal(); }
+function enterManager(){ requireManager(()=>switchTab('suppliers')); }
+function lockManager(){ MANAGER=false; const tab=TABS.find(t=>t.id===CURRENT_TAB); if(tab&&tab.mgr) switchTab('prod'); renderTabs(); toast('Manager mode locked'); }
+function openMgrModal(){ const m=document.getElementById('mgrModal'); if(!m){ if(typeof _mgrThen==='function'){const c=_mgrThen;_mgrThen=null;c();} return; }
+  m.querySelector('#mgrPin').value=''; const e=m.querySelector('#mgrErr'); if(e) e.style.display='none';
+  m.style.display='flex'; setTimeout(()=>{const p=m.querySelector('#mgrPin'); if(p) p.focus();},60); }
+function closeMgrModal(){ const m=document.getElementById('mgrModal'); if(m) m.style.display='none'; _mgrThen=null; }
+function submitMgrPin(){
+  const m=document.getElementById('mgrModal'); const pin=(m.querySelector('#mgrPin').value||'').trim();
+  if(!managers().some(w=>String(w.pin)===pin)){ const e=m.querySelector('#mgrErr'); if(e){ e.textContent='Wrong manager PIN.'; e.style.display='block'; } m.querySelector('#mgrPin').value=''; return; }
+  MANAGER=true; const cb=_mgrThen; _mgrThen=null; m.style.display='none'; renderTabs();
+  if(typeof cb==='function') cb(); toast('Manager mode on');
+}
+function toggleMgr(id){ const w=workerById(id); if(!w) return;
+  if(!w.mgr && !/^\d{4,6}$/.test(String(w.pin||''))){ toast('Set a 4–6 digit PIN first (Edit), then make manager'); return; }
+  w.mgr=!w.mgr; saveState(); if(typeof pushState==='function') pushState(); renderRoster(); toast(w.name+(w.mgr?' is now a manager':' is no longer a manager')); }
 /* ---- manager sign-in gate ---- */
 function showAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='flex'; initGsi(); }
 function hideAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='none'; }
@@ -1615,7 +1780,8 @@ const TABS = [
   {id:'curing', label:'Curing'},
   {id:'ship', label:'Export'},
   {id:'stats', label:'Stats'},
-  {id:'settings', label:'Settings', owner:true},
+  {id:'suppliers', label:'Suppliers', mgr:true},
+  {id:'settings', label:'Settings', mgr:true},
 ];
 function setRole(r){
   ROLE=r; document.body.dataset.role=r;
@@ -1632,17 +1798,24 @@ function renderTabs(){
   const curingCount = STATE.batches.filter(b=>b.status==='cure').length;
   const ready = STATE.batches.filter(b=>b.status==='ready').length;
   const c = {orders:openOrders, prod:prodNeeded, curing:curingCount, ship:ready};
-  $('#tabs').innerHTML = TABS.filter(t=>!(t.owner && ROLE!=='owner')).map(t=>{
+  const unlocked=isManagerUnlocked();
+  let html = TABS.filter(t=>!t.mgr || unlocked).map(t=>{
     const badge = c[t.id]? `<span class="badge">${c[t.id]}</span>`:'';
     return `<button class="${t.id===CURRENT_TAB?'active':''}" onclick="switchTab('${t.id}')">${t.label}${badge}</button>`;
   }).join('');
+  if(managersExist()){
+    html += `<button class="mgr-toggle" onclick="${MANAGER?'lockManager()':'enterManager()'}" style="margin-left:auto;opacity:.85">${MANAGER?'🔓 Lock':'🔒 Manager'}</button>`;
+  }
+  $('#tabs').innerHTML = html;
 }
 function switchTab(id){
+  const tab=TABS.find(t=>t.id===id);
+  if(tab && tab.mgr && !isManagerUnlocked()){ requireManager(()=>switchTab(id)); return; }
   CURRENT_TAB=id;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const v=$('#view-'+id); if(v) v.classList.add('active');
   renderTabs();
   ({dash:renderDash,orders:renderOrders,make:renderProd,prod:renderProd,
-    inv:renderInv,curing:(typeof renderCuring==='function'?renderCuring:()=>{}),ship:renderShip,work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{}),stats:(typeof renderStats==='function'?renderStats:()=>{})}[id]||(()=>{}))();
+    inv:renderInv,curing:(typeof renderCuring==='function'?renderCuring:()=>{}),suppliers:(typeof renderSuppliers==='function'?renderSuppliers:()=>{}),restock:(typeof renderRestock==='function'?renderRestock:()=>{}),ship:renderShip,work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{}),stats:(typeof renderStats==='function'?renderStats:()=>{})}[id]||(()=>{}))();
 }
 </script>
