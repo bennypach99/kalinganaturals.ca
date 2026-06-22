@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kalinga Naturals — Handcrafted in the Philippines. Made for you.</title>
-<meta name="description" content="Premium handmade cold-process soap and shampoo bars, crafted by hand in the Philippines with 100% local botanicals. Fair wages, local sourcing, and one bar donated for every ten sold. Made with care. Given with love.">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="description" content="Premium handmade cold-process soap and shampoo bars, crafted by hand in the Philippines with 100% local botanicals. Fair wages, local sourcing, and one bar donated for every ten sold. Clean Hands. Kind hearts.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,300;0,400;0,700;0,900;1,400&display=swap" rel="stylesheet">
@@ -254,7 +257,7 @@
 </head>
 <body>
 
-  <div class="announce">Free Canada-wide shipping over $60&nbsp;&nbsp;·&nbsp;&nbsp;<span>For every 10 bars sold, 1 is donated</span></div>
+  <div class="announce">Free Canada-wide shipping over $50&nbsp;&nbsp;·&nbsp;&nbsp;<span>For every 10 bars sold, 1 is donated</span></div>
 
   <!-- HEADER -->
   <header class="site">
@@ -277,7 +280,7 @@
       <div class="hero-copy">
         <div class="eyebrow" style="display:inline-flex;align-items:center;gap:12px;color:var(--gold);margin-bottom:26px"><span style="width:26px;height:1px;background:var(--gold);display:inline-block"></span>Est. 2026 · Philippines → Canada</div>
         <h1 class="serif">Handcrafted in the<br>Philippines.<br><span class="accent">Made for you.</span></h1>
-        <p class="lead">Premium botanical soap bars — pressed by hand, scented with Philippine calamansi, moringa and ylang-ylang. Made with care. Given with love.</p>
+        <p class="lead">Premium botanical soap bars — pressed by hand, scented with Philippine calamansi, moringa and ylang-ylang. Clean Hands. Kind hearts.</p>
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:18px">
           <a href="#shop" class="btn-gold">Shop the collection</a>
           <a href="#story" class="link-ul">Read our story →</a>
@@ -430,7 +433,7 @@
         <div class="fbrand">
           <div class="k">KALINGA</div>
           <div class="rule"><span class="line"></span><span class="d">◆</span><span class="n">NATURALS</span></div>
-          <p class="tag">Made with care. Given with love.</p>
+          <p class="tag">Clean Hands. Kind hearts.</p>
           <div class="social"><a href="#" aria-label="Instagram">IG</a><a href="#" aria-label="Facebook">FB</a><a href="#" aria-label="TikTok">TT</a></div>
         </div>
         <div class="fnav">
@@ -498,7 +501,7 @@
         <div class="big">Salamat! 🌿</div>
         <p>Your order has been received. We'll be in touch about payment and shipping.</p>
         <div class="num" id="coOkNum"></div>
-        <p style="font-size:12px;color:#9a8e6f">Made with care. Given with love.</p>
+        <p style="font-size:12px;color:#9a8e6f">Clean Hands. Kind hearts.</p>
       </div>
     </div>
     <div class="cart-ft" id="cartFooter">
@@ -506,6 +509,7 @@
         <span class="tl">Total</span>
         <span class="tv" id="cartTotal">$0</span>
       </div>
+      <div class="cart-note" id="shipHint" style="margin:-6px 0 12px"></div>
       <button class="checkout-btn" id="checkoutBtn" onclick="goCheckout()" disabled>Checkout</button>
       <div class="cart-note" id="cartNote">No payment taken here yet — we'll confirm your order and arrange payment.</div>
     </div>
@@ -514,11 +518,14 @@
 <script>
   // ---- Products ----  (key links each product to the operations app)
   var PRODUCTS = [
-    { key:'coconut',   name:'Virgin Coconut & Lemongrass', tag:'Soap', detail:'Cold Process · 100g', scent:'Bright · Citrus · Herbaceous', price:13, img:'product-coconut-lemongrass.png', shot:'coconut · flat-lay' },
-    { key:'calamansi', name:'Calamansi Brightening Bar', tag:'Soap', detail:'Cold Process · 100g', scent:'Zesty · Citrus · Uplifting', price:15, img:'product-calamansi.png', shot:'calamansi · flat-lay' },
-    { key:'moringa',   name:'Moringa & Coconut Milk', tag:'Soap', detail:'Cold Process · 100g', scent:'Creamy · Green · Gentle', price:16, img:'product-moringa.png', shot:'moringa · flat-lay' },
-    { key:'charcoal',  name:'Charcoal & Lemongrass Detox', tag:'Soap', detail:'Cold Process · 100g', scent:'Earthy · Smoky · Fresh', price:14, img:'product-charcoal-detox.png', shot:'charcoal · flat-lay' },
-    { key:'shampoo',   name:'Ylang-Ylang Shampoo Bar', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Floral · Sweet · Calming', price:18, img:'product-ylang-ylang.png', shot:'ylang-ylang · flat-lay' }
+    { key:'coconut',   name:'Virgin Coconut & Lemongrass', tag:'Soap', detail:'Cold Process · 100g', scent:'Bright · Citrus · Herbaceous', price:11, img:'product-coconut-lemongrass.png', shot:'coconut · flat-lay' },
+    { key:'calamansi', name:'Calamansi Brightening Bar', tag:'Soap', detail:'Cold Process · 100g', scent:'Zesty · Citrus · Uplifting', price:13, img:'product-calamansi.png', shot:'calamansi · flat-lay' },
+    { key:'moringa',   name:'Moringa & Coconut Milk', tag:'Soap', detail:'Cold Process · 100g', scent:'Creamy · Green · Gentle', price:14, img:'product-moringa.png', shot:'moringa · flat-lay' },
+    { key:'charcoal',  name:'Charcoal & Lemongrass Detox', tag:'Soap', detail:'Cold Process · 100g', scent:'Earthy · Smoky · Fresh', price:12, img:'product-charcoal-detox.png', shot:'charcoal · flat-lay' },
+    { key:'shampoo',   name:'Ylang-Ylang Shampoo Bar', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Floral · Sweet · Calming', price:16, img:'product-ylang-ylang.png', shot:'ylang-ylang · flat-lay' },
+    { key:'trio',       name:'Bestseller Trio', tag:'Bundle', detail:'3 bars · save $4', scent:'Calamansi · Coconut · Charcoal', price:32, img:'product-trio.png', shot:'3-bar trio', bundle:{calamansi:1,coconut:1,charcoal:1} },
+    { key:'collection', name:'The Full Collection', tag:'Best value', detail:'All 5 bars · save $8', scent:'Every scent in the range', price:58, img:'product-collection.png', shot:'5-bar collection', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1,shampoo:1} },
+    { key:'giftset',    name:'Gift Set', tag:'Gift', detail:'3 bars · giftable box · save $4', scent:'Calamansi · Moringa · Ylang-Ylang', price:39, img:'product-giftset.png', shot:'boxed gift set', bundle:{calamansi:1,moringa:1,shampoo:1}, gift:true }
   ];
   var PMAP = {}; PRODUCTS.forEach(function(p){ PMAP[p.key]=p; });
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -586,7 +593,14 @@
           + '</div>';
       }).join('');
     }
-    document.getElementById('cartTotal').textContent = money(cartTotal());
+    var _st = cartTotal();
+    document.getElementById('cartTotal').textContent = money(_st);
+    var _sh = document.getElementById('shipHint');
+    if(_sh){
+      if(keys.length===0){ _sh.textContent=''; }
+      else if(_st>=50){ _sh.innerHTML='\u2713 Free shipping in Canada unlocked!'; _sh.style.color='var(--teal)'; }
+      else { _sh.innerHTML='Add '+money(50-_st)+' more for free shipping in Canada.'; _sh.style.color=''; }
+    }
     document.getElementById('checkoutBtn').disabled = (keys.length === 0);
   }
 
@@ -640,13 +654,23 @@
                       (cv('coProv')+' '+cv('coPostal')).trim(), cv('coCountry') ].filter(Boolean);
     if(cv('coPhone')) addrLines.push('Tel: '+cv('coPhone'));
     if(cv('coNotes')) addrLines.push('Note: '+cv('coNotes'));
+    // expand any bundle/gift-set into its component bars so the ops app makes them normally
+    var items = {}, bundleNotes = [];
+    for (var ck in CART){
+      var prod = PMAP[ck], q = CART[ck];
+      if (prod && prod.bundle){
+        bundleNotes.push(q+'\u00d7 '+prod.name+' ('+money(prod.price)+(q>1?' ea':'')+')');
+        for (var bk in prod.bundle){ items[bk] = (items[bk]||0) + prod.bundle[bk]*q; }
+      } else { items[ck] = (items[ck]||0) + q; }
+    }
+    if (bundleNotes.length) addrLines.push('Bundles: '+bundleNotes.join('; '));
     var order = {
       id: orderId(),
       customer: (cv('coFirst')+' '+cv('coLast')).trim(),
       email: cv('coEmail'),
       phone: cv('coPhone'),
       address: addrLines.join(', '),
-      items: Object.assign({}, CART),
+      items: items,
       status: 'new',
       created: todayStr(),
       shipped: null

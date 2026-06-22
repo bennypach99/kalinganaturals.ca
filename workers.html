@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kalinga Naturals — Operations</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
   :root{
     --navy:#1A3A5C; --navy-d:#12293f; --gold:#D4A853; --gold-d:#b8902f;
@@ -727,7 +730,7 @@ function printSlip(id){
   slip.innerHTML=`<div class="card" style="max-width:520px;margin:20px auto">
     <div style="text-align:center;border-bottom:2px solid var(--gold);padding-bottom:12px;margin-bottom:14px">
       <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:var(--navy)">KALINGA NATURALS</div>
-      <div class="muted">Made with care. Given with love.</div>
+      <div class="muted">Clean Hands. Kind hearts.</div>
     </div>
     <p><strong>Packing slip</strong> · ${today()}</p>
     <p style="margin:8px 0"><strong>Ship to:</strong><br>${o.customer}<br>${(o.address||'').replace(/,/g,'<br>')}</p>

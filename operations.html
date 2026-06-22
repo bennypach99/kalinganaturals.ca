@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kalinga Naturals — Operations</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
   :root{
     --navy:#1A3A5C; --navy-d:#12293f; --gold:#D4A853; --gold-d:#b8902f;
@@ -181,7 +184,7 @@ let FX = FX_DEFAULT;
 // ingredients: {name, grams, phpCost} per single bar.
 const PRODUCTS = {
   calamansi:{
-    name:"Calamansi Brightening Bar", priceCAD:15, weight:100, cure:35,
+    name:"Calamansi Brightening Bar", priceCAD:13, weight:100, cure:35,
     ingredients:[
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:60, php:8},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
@@ -203,7 +206,7 @@ const PRODUCTS = {
     ]
   },
   coconut:{
-    name:"Virgin Coconut & Lemongrass", priceCAD:13, weight:100, cure:35,
+    name:"Virgin Coconut & Lemongrass", priceCAD:11, weight:100, cure:35,
     ingredients:[
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:70, php:9},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
@@ -222,7 +225,7 @@ const PRODUCTS = {
     ]
   },
   moringa:{
-    name:"Moringa & Coconut Milk", priceCAD:16, weight:100, cure:35,
+    name:"Moringa & Coconut Milk", priceCAD:14, weight:100, cure:35,
     ingredients:[
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:55, php:7},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
@@ -243,7 +246,7 @@ const PRODUCTS = {
     ]
   },
   charcoal:{
-    name:"Charcoal & Lemongrass Detox", priceCAD:14, weight:100, cure:35,
+    name:"Charcoal & Lemongrass Detox", priceCAD:12, weight:100, cure:35,
     ingredients:[
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:65, php:8},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
@@ -263,7 +266,7 @@ const PRODUCTS = {
     ]
   },
   shampoo:{
-    name:"Ylang-Ylang Shampoo Bar", priceCAD:18, weight:90, cure:49,
+    name:"Ylang-Ylang Shampoo Bar", priceCAD:16, weight:90, cure:49,
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:18},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:3},
@@ -788,7 +791,7 @@ function printSlip(id){
   slip.innerHTML=`<div class="card" style="max-width:520px;margin:20px auto">
     <div style="text-align:center;border-bottom:2px solid var(--gold);padding-bottom:12px;margin-bottom:14px">
       <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:var(--navy)">KALINGA NATURALS</div>
-      <div class="muted">Made with care. Given with love.</div>
+      <div class="muted">Clean Hands. Kind hearts.</div>
     </div>
     <p><strong>Packing slip</strong> · ${today()}</p>
     <p style="margin:8px 0"><strong>Ship to:</strong><br>${o.customer}<br>${(o.address||'').replace(/,/g,'<br>')}</p>
