@@ -132,6 +132,8 @@
   }
 .cmodal{position:fixed;inset:0;background:rgba(20,30,40,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
   .cmodal .cbox{background:#fff;border-radius:10px;padding:22px;max-width:430px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.45)}
+.pm{position:fixed;inset:0;z-index:520;background:rgba(20,30,40,.6);display:flex;align-items:center;justify-content:center;padding:20px}
+  .pm-box{background:#fff;border-radius:12px;padding:26px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -159,6 +161,24 @@
 
 <div class="tabs no-print" id="tabs"></div>
 
+<datalist id="uomList"><option value="g"><option value="kg"><option value="ml"><option value="L"><option value="pcs"><option value="pack"><option value="roll"><option value="sheet"><option value="box"><option value="bottle"><option value="bag"></datalist>
+<div id="supForm" class="pm" style="display:none">
+  <div class="pm-box" style="max-width:560px;text-align:left">
+    <h3 id="supFormTitle" style="margin:0 0 12px">Add supplier</h3>
+    <div class="row" style="gap:8px">
+      <label class="fld" style="flex:2"><span>Name</span><input id="sf_name" placeholder="e.g. Manila Oils Trading"></label>
+      <label class="fld" style="flex:1"><span>Phone</span><input id="sf_phone"></label>
+    </div>
+    <label class="fld"><span>Email</span><input id="sf_email" type="email"></label>
+    <label class="fld"><span>Address</span><input id="sf_addr"></label>
+    <label class="fld"><span>Account / ID #</span><input id="sf_acct"></label>
+    <label class="fld"><span>Note</span><input id="sf_note" placeholder="terms, contact person, etc."></label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeSupplierForm()">Close</button>
+      <button class="btn gold" onclick="saveSupplierForm()">Save</button>
+    </div>
+  </div>
+</div>
 <div class="wrap">
   <!-- DASHBOARD (owner) -->
   <div class="view" id="view-dash"></div>
@@ -178,6 +198,8 @@
   <div class="view" id="view-settings"></div>
   <!-- TEAM (owner) -->
   <div class="view" id="view-team"></div>
+  <div class="view" id="view-suppliers"></div>
+  <div class="view" id="view-restock"></div>
 </div>
 
 <div id="conflictModal" class="cmodal" style="display:none"></div>
@@ -703,28 +725,30 @@ function logProduction(pk){
    INVENTORY
    ============================================================ */
 function renderInv(){
-  const master=allIngredients();
-  const ingInputs=Object.values(master).map(i=>`<option value="${i.key}">${i.name}</option>`).join('');
-  // compute how much each ingredient is needed by current make-queue
-  const needed={};
-  STATE.batches.filter(b=>b.status==='make').forEach(b=>{
-    PRODUCTS[b.product].ingredients.forEach(i=>{needed[i.key]=(needed[i.key]||0)+i.grams*b.qty;});
-  });
-  const rows=Object.values(master).map(i=>{
-    const have=STATE.inventory[i.key]||0,need=needed[i.key]||0,avail=have-need,short=avail<0;
-    return `<tr><td>${i.name}</td>
-      <td class="right">${have} g</td>
-      <td class="right">${need? need+' g':'—'}</td>
-      <td class="right ${short?'low':''}">${avail} g</td>
-      <td>${short?`<span class="pill new">reorder</span>`:`<span class="pill ready">ok</span>`}</td>
-      <td class="right no-print"><button class="btn sm ghost" onclick="quickAdd('${i.key}')">+ stock</button></td></tr>`;
-  }).join('');
-
+  if(typeof checkReorder==='function') checkReorder();
+  const ing=allIngredients();
+  const ingInputs=Object.values(ing).map(i=>`<option value="${i.key}">${i.name}</option>`).join('');
+  const sups=(STATE.suppliers||[]);
+  const supOptions=key=>{ const cur=(STATE.itemSupplier||{})[key]||''; return `<option value="">— supplier —</option>`+sups.map(s=>`<option value="${s.id}" ${s.id===cur?'selected':''}>${s.name}</option>`).join(''); };
+  const rowFor=(key,name)=>{
+    const unit=supplyUnit(key);
+    const onHand=supplyOnHand(key), lvl=(STATE.reorder||{})[key]||0, low=lvl>0 && onHand<=lvl;
+    return `<tr>
+      <td>${name}</td>
+      <td class="right ${low?'low':''}">${onHand} ${unit}</td>
+      <td class="no-print"><input list="uomList" value="${unit}" style="width:62px" onchange="setUom('${key}',this.value);renderInv()"></td>
+      <td class="right no-print"><input type="number" min="0" value="${lvl||''}" placeholder="—" style="width:74px" onchange="setReorder('${key}',this.value)"></td>
+      <td class="no-print"><select onchange="setItemSupplier('${key}',this.value)">${supOptions(key)}</select></td>
+      <td>${low?'<span class="pill new">low</span>':'<span class="pill ready">ok</span>'}</td>
+      <td class="right no-print">${onRestock(key)?'<span class="muted">on list</span>':`<button class="btn sm gold" onclick="addToRestock('${key}','manual')">+ Restock</button>`}</td>
+    </tr>`;
+  };
+  const ingRows=Object.values(ing).map(i=>rowFor(i.key,i.name)).join('');
+  const boxRow=rowFor('box','Export box');
+  const supRows=Object.entries(STATE.supplies||{}).map(([k,v])=>rowFor(k,v.name)).join('');
   $('#view-inv').innerHTML=`
-    <div class="page-head"><div>
-      <h2>Inventory</h2><p>Ingredient stock in grams. Production deducts automatically; log deliveries here.</p>
-    </div></div>
-    <div class="card no-print"><h3>Log a delivery</h3>
+    <div class="page-head"><div><h2>Inventory</h2><p>Stock on hand. Set a reorder level and supplier per item — low items flow to Restock automatically.</p></div></div>
+    <div class="card no-print"><h3>Log a received delivery</h3>
       <div class="row">
         <label class="fld"><span>Ingredient</span><select id="inv_ing">${ingInputs}</select></label>
         <label class="fld"><span>Grams received</span><input id="inv_g" type="number" min="0" placeholder="e.g. 5000"></label>
@@ -732,9 +756,18 @@ function renderInv(){
       </div>
       <button class="btn gold" onclick="addDelivery()">+ Add to stock</button>
     </div>
-    <div class="card"><h3>Current stock</h3>
-      <table><thead><tr><th>Ingredient</th><th class="right">On hand</th><th class="right">Reserved</th><th class="right">Available</th><th>Status</th><th class="no-print"></th></tr></thead>
-      <tbody>${rows}</tbody></table>
+    <div class="card"><h3>Ingredients</h3>
+      <table><thead><tr><th>Ingredient</th><th class="right">On hand</th><th class="no-print">Unit</th><th class="right no-print">Reorder at</th><th class="no-print">Supplier</th><th>Status</th><th class="no-print"></th></tr></thead>
+      <tbody>${ingRows}</tbody></table>
+    </div>
+    <div class="card"><h3>Packaging & supplies</h3>
+      <table><thead><tr><th>Item</th><th class="right">On hand</th><th class="no-print">Unit</th><th class="right no-print">Reorder at</th><th class="no-print">Supplier</th><th>Status</th><th class="no-print"></th></tr></thead>
+      <tbody>${boxRow}${supRows}</tbody></table>
+      <div class="no-print row" style="gap:8px;align-items:flex-end;margin-top:10px">
+        <label class="fld" style="flex:2"><span>Add a custom supply</span><input id="newSupplyName" placeholder="e.g. Kraft labels"></label>
+        <label class="fld" style="flex:1"><span>Unit</span><input id="newSupplyUom" list="uomList" placeholder="pcs"></label>
+        <button class="btn ghost" onclick="addCustomSupply()">+ Add supply</button>
+      </div>
     </div>`;
 }
 function addDelivery(){
@@ -902,7 +935,7 @@ async function loadState(){
 function rerenderCurrent(){
   renderTabs();
   const m = {dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
-    inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:null),work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null)};
+    inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:null),suppliers:(typeof renderSuppliers==='function'?renderSuppliers:null),restock:(typeof renderRestock==='function'?renderRestock:null),work:(typeof renderWork==='function'?renderWork:null),settings:(typeof renderSettings==='function'?renderSettings:null)};
   const f = m[CURRENT_TAB]; if(f) f();
 }
 
@@ -1210,6 +1243,296 @@ function dangerReset(){
   saveState(); if(typeof pushState==='function') pushState();
   renderTabs(); switchTab('settings'); toast('All jobs cleared');
 }
+/* ============================================================
+   RESTOCK + PURCHASE ORDERS  (manager-only)
+   ============================================================ */
+function roundUp(n,inc){ inc=inc||1; return Math.ceil(n/inc)*inc; }
+function supplyOnHand(key){
+  if(key==='box') return STATE.boxStock||0;
+  if(allIngredients()[key]) return (STATE.inventory&&STATE.inventory[key])||0;
+  if(STATE.supplies&&STATE.supplies[key]) return STATE.supplies[key].qty||0;
+  return (STATE.inventory&&STATE.inventory[key])||0;
+}
+function supplyUnit(key){ const u=(STATE.uom||{})[key]; if(u) return u; if(key==='box') return 'box'; if(allIngredients()[key]) return 'g'; if(STATE.supplies&&STATE.supplies[key]&&STATE.supplies[key].unit) return STATE.supplies[key].unit; return 'units'; }
+function setUom(key,val){ val=(val||'').trim(); STATE.uom=STATE.uom||{}; if(!val) delete STATE.uom[key]; else STATE.uom[key]=val; if(STATE.supplies&&STATE.supplies[key]) STATE.supplies[key].unit=val; saveState(); if(typeof pushState==='function') pushState(); }
+function allSupplyKeys(){ return Object.keys(allIngredients()).concat(['box']).concat(Object.keys(STATE.supplies||{})); }
+function addSupplyStock(key, qty){
+  qty=qty||0;
+  if(key==='box'){ STATE.boxStock=(STATE.boxStock||0)+qty; }
+  else if(allIngredients()[key]){ STATE.inventory[key]=(STATE.inventory[key]||0)+qty; STATE.deliveries=STATE.deliveries||[]; STATE.deliveries.push({id:uid(),ingredient:key,grams:qty,phpCost:0,date:today()}); }
+  else { STATE.supplies=STATE.supplies||{}; STATE.supplies[key]=STATE.supplies[key]||{name:key,qty:0}; STATE.supplies[key].qty=(STATE.supplies[key].qty||0)+qty; }
+}
+function onRestock(key){ return (STATE.restock||[]).some(r=>r.key===key); }
+function inOpenPO(key){ return (STATE.pos||[]).some(p=>p.status!=='received' && (p.items||[]).some(it=>it.key===key)); }
+function addToRestock(key, reason){
+  if(onRestock(key)){ toast('Already on the restock list'); return; }
+  STATE.restock=STATE.restock||[];
+  STATE.restock.push({id:uid(), key, supplierId:(STATE.itemSupplier||{})[key]||'', reason:reason||'manual', created:today()});
+  saveState(); if(typeof pushState==='function') pushState(); renderTabs();
+  toast(supplyName(key)+' added to Restock');
+}
+function checkReorder(){
+  let added=0;
+  allSupplyKeys().forEach(key=>{
+    const lvl=(STATE.reorder||{})[key]||0;
+    if(lvl>0 && supplyOnHand(key)<=lvl && !onRestock(key) && !inOpenPO(key)){
+      STATE.restock=STATE.restock||[];
+      STATE.restock.push({id:uid(), key, supplierId:(STATE.itemSupplier||{})[key]||'', reason:'low', created:today()});
+      added++;
+    }
+  });
+  if(added) saveState();
+  return added;
+}
+function setReorder(key,val){ const n=parseInt(val); STATE.reorder=STATE.reorder||{}; if(isNaN(n)||n<=0) delete STATE.reorder[key]; else STATE.reorder[key]=n; saveState(); if(typeof pushState==='function') pushState(); renderInv(); renderTabs(); }
+function setItemSupplier(key,sid){ STATE.itemSupplier=STATE.itemSupplier||{};
+  if(!sid){ delete STATE.itemSupplier[key]; }
+  else { STATE.itemSupplier[key]=sid; const s=supplierById(sid); if(s){ s.items=s.items||[]; if(!s.items.some(it=>it.key===key)) s.items.push({key,packSize:1,minOrder:0}); } }
+  saveState(); if(typeof pushState==='function') pushState(); renderInv(); }
+function addCustomSupply(){
+  const name=($('#newSupplyName').value||'').trim(); if(!name){ toast('Enter a name'); return; }
+  const unit=((($('#newSupplyUom')||{}).value)||'units').trim()||'units';
+  const key='sup-'+uid(); STATE.supplies=STATE.supplies||{}; STATE.supplies[key]={name, qty:0, unit};
+  STATE.uom=STATE.uom||{}; STATE.uom[key]=unit;
+  saveState(); if(typeof pushState==='function') pushState(); renderInv(); toast(name+' added');
+}
+function removeRestock(id){ STATE.restock=(STATE.restock||[]).filter(r=>r.id!==id); saveState(); if(typeof pushState==='function') pushState(); renderRestock(); renderTabs(); }
+function pickRestockSupplier(rid){
+  const r=(STATE.restock||[]).find(x=>x.id===rid); if(!r) return;
+  const sups=(STATE.suppliers||[]); if(!sups.length){ toast('Add a supplier in the Suppliers tab first'); return; }
+  const pick=prompt('Assign supplier for '+supplyName(r.key)+':\n'+sups.map((s,i)=>(i+1)+'. '+s.name).join('\n')+'\n\nEnter a number:'); if(pick===null) return;
+  const idx=parseInt(pick)-1; if(idx<0||idx>=sups.length){ toast('Invalid choice'); return; }
+  const s=sups[idx]; r.supplierId=s.id; STATE.itemSupplier=STATE.itemSupplier||{}; STATE.itemSupplier[r.key]=s.id;
+  s.items=s.items||[]; if(!s.items.some(it=>it.key===r.key)) s.items.push({key:r.key,packSize:1,minOrder:0});
+  saveState(); if(typeof pushState==='function') pushState(); renderRestock();
+}
+function poNum(){ const d=new Date(); return 'PO-'+String(d.getFullYear()).slice(2)+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'-'+Math.random().toString(36).slice(2,5).toUpperCase(); }
+function generatePOs(){
+  const checked=[].slice.call(document.querySelectorAll('.rk-chk:checked')).map(c=>c.getAttribute('data-id'));
+  if(!checked.length){ toast('Tick the items you want to order'); return; }
+  const bySup={}; let skipped=0;
+  checked.forEach(rid=>{
+    const r=(STATE.restock||[]).find(x=>x.id===rid); if(!r) return;
+    const s=r.supplierId&&supplierById(r.supplierId); if(!s){ skipped++; return; }
+    const item=(s.items||[]).find(i=>i.key===r.key)||{packSize:1,minOrder:0};
+    const pack=item.packSize||1, minO=item.minOrder||0;
+    const qEl=document.getElementById('rk-qty-'+rid); let qty=parseInt(qEl&&qEl.value)||pack;
+    let packs=Math.max(1,Math.ceil(qty/pack)), actual=packs*pack;
+    if(actual<minO){ packs=Math.ceil(minO/pack); actual=packs*pack; }
+    (bySup[s.id]=bySup[s.id]||[]).push({key:r.key, qty:actual, packs});
+  });
+  const ids=Object.keys(bySup);
+  if(!ids.length){ toast(skipped?'Assign a supplier to those items first':'Nothing to order'); return; }
+  ids.forEach(sid=>{
+    STATE.pos=STATE.pos||[];
+    STATE.pos.push({id:uid(), num:poNum(), supplierId:sid, items:bySup[sid], status:'draft', created:today(), sent:'', received:''});
+    bySup[sid].forEach(it=>{ STATE.restock=(STATE.restock||[]).filter(r=>!(r.key===it.key && r.supplierId===sid)); });
+  });
+  saveState(); if(typeof pushState==='function') pushState(); renderRestock(); renderTabs();
+  toast(ids.length+' PO'+(ids.length>1?'s':'')+' created'+(skipped?' ('+skipped+' skipped — no supplier)':''));
+}
+function markPOSent(id){ const p=(STATE.pos||[]).find(x=>x.id===id); if(!p) return; p.status='sent'; p.sent=today(); saveState(); if(typeof pushState==='function') pushState(); renderRestock(); }
+function emailPO(id){
+  const p=(STATE.pos||[]).find(x=>x.id===id); if(!p) return; const s=supplierById(p.supplierId)||{};
+  const lines=(p.items||[]).map(it=>'- '+supplyName(it.key)+': '+it.qty+' '+supplyUnit(it.key)).join('\n');
+  const subject='Purchase Order '+p.num+' — Kalinga Naturals';
+  const body='Hello '+(s.name||'')+',\n\nPlease supply the following:\n\n'+lines+'\n\nPO #: '+p.num+'\nDate: '+p.created+'\n'+(s.account?('Account: '+s.account+'\n'):'')+'\nThank you,\nKalinga Naturals';
+  window.location.href='mailto:'+encodeURIComponent(s.email||'')+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+  if(p.status==='draft') markPOSent(id);
+}
+function receivePO(id){
+  const p=(STATE.pos||[]).find(x=>x.id===id); if(!p) return;
+  if(!confirm('Mark '+p.num+' received and add everything to stock?')) return;
+  (p.items||[]).forEach(it=>addSupplyStock(it.key, it.qty));
+  p.status='received'; p.received=today();
+  (p.items||[]).forEach(it=>{ STATE.restock=(STATE.restock||[]).filter(r=>r.key!==it.key); });
+  saveState(); if(typeof pushState==='function') pushState(); renderRestock(); renderTabs(); toast(p.num+' received — stock updated');
+}
+function printPO(id){
+  const p=(STATE.pos||[]).find(x=>x.id===id); if(!p) return; const s=supplierById(p.supplierId)||{};
+  const rows=(p.items||[]).map(it=>`<tr><td>${supplyName(it.key)}</td><td class="right">${it.qty} ${supplyUnit(it.key)}</td></tr>`).join('');
+  const el=$('#poPrint'); if(!el) return; el.classList.add('print-active');
+  el.innerHTML=`<div class="card" style="max-width:560px;margin:20px auto">
+    <div style="text-align:center;border-bottom:2px solid var(--gold);padding-bottom:12px;margin-bottom:14px">
+      <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:var(--navy)">KALINGA NATURALS</div>
+      <div class="muted">Purchase Order</div></div>
+    <p><strong>${p.num}</strong> · ${p.created}</p>
+    <p style="margin:8px 0"><strong>Supplier:</strong> ${s.name||'—'}${s.account?` (Acct ${s.account})`:''}<br>${[s.phone,s.email,s.address].filter(Boolean).join(' · ')}</p>
+    <p><strong>Ship to:</strong> Kalinga Naturals workshop</p>
+    <table style="margin-top:10px"><thead><tr><th>Item</th><th class="right">Quantity</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="no-print center" style="margin-top:16px">
+      <button class="btn gold" onclick="window.print()">Print / Save PDF</button>
+      <button class="btn ghost" onclick="closePO()">Close</button></div></div>`;
+  document.querySelectorAll('#view-restock>.card').forEach(c=>c.classList.add('no-print'));
+  window.scrollTo(0,document.body.scrollHeight);
+}
+function closePO(){ const el=$('#poPrint'); if(el){ el.classList.remove('print-active'); el.innerHTML=''; } document.querySelectorAll('#view-restock>.card').forEach(c=>c.classList.remove('no-print')); }
+function poCard(p){
+  const s=supplierById(p.supplierId);
+  const rows=(p.items||[]).map(it=>`<tr><td>${supplyName(it.key)}</td><td class="right">${it.qty} ${supplyUnit(it.key)}</td><td class="right muted">${it.packs} pack${it.packs>1?'s':''}</td></tr>`).join('');
+  const pill=p.status==='draft'?'<span class="pill make">draft</span>':(p.status==='sent'?'<span class="pill new">sent</span>':'<span class="pill ready">received</span>');
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><h3 style="margin-bottom:2px">${p.num}</h3><div class="muted">${s?s.name:'—'} · ${p.created}</div></div>${pill}
+    </div>
+    <table style="margin-top:8px"><thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Packs</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn ghost" onclick="printPO('${p.id}')">🖨 PDF</button>
+      ${s&&s.email?`<button class="btn teal" onclick="emailPO('${p.id}')">✉ Email supplier</button>`:''}
+      ${p.status==='draft'?`<button class="btn ghost" onclick="markPOSent('${p.id}')">Mark sent</button>`:''}
+      ${p.status!=='received'?`<button class="btn gold" onclick="receivePO('${p.id}')">✓ Received → add to stock</button>`:''}
+    </div></div>`;
+}
+function renderRestock(){
+  if(typeof checkReorder==='function') checkReorder();
+  const list=(STATE.restock||[]).slice();
+  const rkRows=list.map(r=>{
+    const key=r.key, s=supplierById(r.supplierId), unit=supplyUnit(key);
+    const item=(s&&(s.items||[]).find(i=>i.key===key))||{};
+    const pack=item.packSize||1, minO=item.minOrder||0;
+    const onHand=supplyOnHand(key), lvl=(STATE.reorder||{})[key]||0;
+    const suggest=Math.max(roundUp(Math.max(lvl*2-onHand, pack), pack), minO, pack);
+    return `<tr>
+      <td class="no-print"><input type="checkbox" class="rk-chk" data-id="${r.id}" ${r.supplierId?'checked':''}></td>
+      <td>${supplyName(key)}<div class="muted">${r.reason==='low'?'auto · low stock':'manual'}${pack>1?` · sold in ${pack}s`:''}</div></td>
+      <td>${s?s.name:'<span style="color:#b3261e">no supplier</span>'} ${s?'':`<button class="btn sm ghost" onclick="pickRestockSupplier('${r.id}')">set</button>`}</td>
+      <td class="right">${onHand} ${unit}</td>
+      <td class="right"><input type="number" min="0" value="${suggest}" id="rk-qty-${r.id}" style="width:80px"></td>
+      <td class="right no-print"><button class="btn sm ghost" onclick="removeRestock('${r.id}')">✕</button></td>
+    </tr>`;
+  }).join('');
+  const open=(STATE.pos||[]).filter(p=>p.status!=='received').slice().reverse();
+  const done=(STATE.pos||[]).filter(p=>p.status==='received').slice().reverse().slice(0,15);
+  $('#view-restock').innerHTML=`
+    <div class="page-head"><div><h2>Restock</h2><p>Low items appear here automatically. Tick what to order and Generate PO's — one per supplier, rounded up to their pack size.</p></div></div>
+    <div class="card"><h3>To order <span class="muted">(${list.length})</span></h3>
+      ${list.length?`<table><thead><tr><th class="no-print"></th><th>Item</th><th>Supplier</th><th class="right">On hand</th><th class="right">Order qty</th><th class="no-print"></th></tr></thead><tbody>${rkRows}</tbody></table>
+        <div class="no-print" style="margin-top:12px"><button class="btn gold" onclick="generatePOs()">Generate PO's</button></div>`
+        :`<div class="empty"><div class="big">◇</div>Nothing to reorder right now.</div>`}
+    </div>
+    <div class="card"><h3>Purchase orders <span class="muted">(${open.length} open)</span></h3>
+      ${open.length?open.map(poCard).join(''):`<p class="muted">No open purchase orders.</p>`}
+    </div>
+    ${done.length?`<div class="card"><h3>Received recently</h3>
+      <table><thead><tr><th>PO</th><th>Supplier</th><th>Received</th></tr></thead><tbody>${done.map(p=>{const s=supplierById(p.supplierId);return `<tr><td>${p.num}</td><td>${s?s.name:'—'}</td><td>${p.received}</td></tr>`;}).join('')}</tbody></table></div>`:''}
+    <div class="view" id="poPrint"></div>`;
+}
+/* ============================================================
+   SUPPLIERS  (manager-only)
+   ============================================================ */
+function supplyName(key){
+  if(key==='box') return 'Export box';
+  const ing=allIngredients()[key]; if(ing) return ing.name;
+  if(STATE.supplies&&STATE.supplies[key]) return STATE.supplies[key].name;
+  return key;
+}
+function supplyKeyOptions(selected){
+  const ing=Object.values(allIngredients()).map(i=>({key:i.key,name:i.name}));
+  const all=ing.concat([{key:'box',name:'Export box'}]).concat(Object.entries(STATE.supplies||{}).map(([k,v])=>({key:k,name:v.name})));
+  return all.map(o=>`<option value="${o.key}" ${o.key===selected?'selected':''}>${o.name}</option>`).join('');
+}
+function supplierById(id){ return (STATE.suppliers||[]).find(x=>x.id===id); }
+function renderSuppliers(){
+  const sups=(STATE.suppliers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const cards=sups.map(s=>{
+    const itemRows=(s.items||[]).map(it=>`<tr>
+      <td>${supplyName(it.key)}</td>
+      <td class="right"><input type="number" min="1" value="${it.packSize||1}" style="width:60px" onchange="setSupItem('${s.id}','${it.key}','pack',this.value)"> ${supplyUnit(it.key)}</td>
+      <td class="right"><input type="number" min="0" value="${it.minOrder||0}" style="width:60px" onchange="setSupItem('${s.id}','${it.key}','min',this.value)"> ${supplyUnit(it.key)}</td>
+      <td class="right no-print"><button class="btn sm ghost" onclick="removeSupItem('${s.id}','${it.key}')">✕</button></td>
+    </tr>`).join('');
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div><h3 style="margin-bottom:2px">${s.name}</h3>
+          <div class="muted">${[s.phone,s.email].filter(Boolean).join(' · ')||'—'}</div></div>
+        <div class="no-print"><button class="btn sm ghost" onclick="editSupplier('${s.id}')">Edit</button> <button class="btn sm ghost" onclick="deleteSupplier('${s.id}')">Delete</button></div>
+      </div>
+      <div class="muted" style="margin-top:6px">${s.address||''}${s.account?` · Acct ${s.account}`:''}${s.note?`<br>${s.note}`:''}</div>
+      <div class="divider"></div>
+      <h4 style="margin:6px 0">Supplies</h4>
+      ${(s.items&&s.items.length)?`<table><thead><tr><th>Item</th><th class="right">Sold in (pack)</th><th class="right">Min order</th><th class="no-print"></th></tr></thead><tbody>${itemRows}</tbody></table>`:`<p class="muted">No items yet — add what they supply below.</p>`}
+      <div class="no-print row" style="gap:8px;align-items:flex-end;margin-top:10px">
+        <label class="fld" style="flex:2"><span>Add item</span><select id="si-key-${s.id}">${supplyKeyOptions()}</select></label>
+        <label class="fld" style="flex:1"><span>Pack size</span><input id="si-pack-${s.id}" type="number" min="1" value="1"></label>
+        <label class="fld" style="flex:1"><span>Min order</span><input id="si-min-${s.id}" type="number" min="0" value="0"></label>
+        <label class="fld" style="flex:1"><span>Unit</span><input id="si-uom-${s.id}" list="uomList" placeholder="pcs"></label>
+        <button class="btn gold" onclick="addSupItem('${s.id}')">+ Add</button>
+      </div>
+    </div>`;
+  }).join('');
+  $('#view-suppliers').innerHTML=`
+    <div class="page-head"><div><h2>Suppliers</h2><p>Your vendors and what they supply. <strong>Pack size</strong> is the increment orders round up to; <strong>min order</strong> is their minimum quantity.</p></div></div>
+    <div class="no-print" style="margin-bottom:14px"><button class="btn gold" onclick="openSupplierForm()">+ Add supplier</button></div>
+    ${sups.length?`<div class="grid g2">${cards}</div>`:`<div class="card"><div class="empty"><div class="big">◇</div>No suppliers yet — add your first with the button above.</div></div>`}`;
+}
+let _supEditId=null;
+function openSupplierForm(id){
+  _supEditId=id||null; const s=id?supplierById(id):null;
+  const m=document.getElementById('supForm'); if(!m) return;
+  m.querySelector('#supFormTitle').textContent=s?'Edit supplier':'Add supplier';
+  const set=(f,v)=>{ const el=m.querySelector('#'+f); if(el) el.value=v||''; };
+  set('sf_name',s&&s.name); set('sf_phone',s&&s.phone); set('sf_email',s&&s.email);
+  set('sf_addr',s&&s.address); set('sf_acct',s&&s.account); set('sf_note',s&&s.note);
+  m.style.display='flex'; setTimeout(()=>{const n=m.querySelector('#sf_name'); if(n) n.focus();},60);
+}
+function closeSupplierForm(){ const m=document.getElementById('supForm'); if(m) m.style.display='none'; _supEditId=null; }
+function saveSupplierForm(){
+  const m=document.getElementById('supForm'); const g=f=>(m.querySelector('#'+f).value||'').trim();
+  const name=g('sf_name'); if(!name){ toast('Enter a supplier name'); return; }
+  if(_supEditId){
+    const s=supplierById(_supEditId);
+    if(s){ s.name=name; s.phone=g('sf_phone'); s.email=g('sf_email'); s.address=g('sf_addr'); s.account=g('sf_acct'); s.note=g('sf_note'); }
+  } else {
+    STATE.suppliers=STATE.suppliers||[];
+    STATE.suppliers.push({id:uid(), name, phone:g('sf_phone'), email:g('sf_email'), address:g('sf_addr'), account:g('sf_acct'), note:g('sf_note'), items:[]});
+  }
+  saveState(); if(typeof pushState==='function')pushState(); closeSupplierForm(); renderSuppliers(); toast('Saved');
+}
+function setSupItem(sid,key,which,val){
+  const s=supplierById(sid); if(!s) return; const it=(s.items||[]).find(i=>i.key===key); if(!it) return;
+  const n=parseInt(val);
+  if(which==='pack'){ if(n>0) it.packSize=n; } else { if(n>=0) it.minOrder=n; }
+  saveState(); if(typeof pushState==='function')pushState();
+}
+function addSupplier(){
+  const g=id=>{const e=$('#'+id);return e?e.value.trim():'';};
+  const name=g('sup_name'); if(!name){ toast('Enter a supplier name'); return; }
+  STATE.suppliers=STATE.suppliers||[];
+  STATE.suppliers.push({id:uid(), name, phone:g('sup_phone'), email:g('sup_email'), address:g('sup_addr'), account:g('sup_acct'), note:g('sup_note'), items:[]});
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(name+' added');
+}
+function editSupplier(id){ openSupplierForm(id); }
+function deleteSupplier(id){
+  const s=supplierById(id); if(!s) return;
+  if(!confirm('Delete supplier '+s.name+'?')) return;
+  STATE.suppliers=(STATE.suppliers||[]).filter(x=>x.id!==id);
+  Object.keys(STATE.itemSupplier||{}).forEach(k=>{ if(STATE.itemSupplier[k]===id) delete STATE.itemSupplier[k]; });
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+function addSupItem(sid){
+  const s=supplierById(sid); if(!s) return;
+  const key=$('#si-key-'+sid).value;
+  const pack=Math.max(1,parseInt($('#si-pack-'+sid).value)||1);
+  const min=Math.max(0,parseInt($('#si-min-'+sid).value)||0);
+  s.items=s.items||[];
+  if(s.items.some(it=>it.key===key)){ toast('Already listed for this supplier'); return; }
+  const u=((($('#si-uom-'+sid)||{}).value)||'').trim(); if(u){ STATE.uom=STATE.uom||{}; STATE.uom[key]=u; }
+  s.items.push({key, packSize:pack, minOrder:min});
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(supplyName(key)+' added');
+}
+function editSupItem(sid,key){
+  const s=supplierById(sid); if(!s) return;
+  const it=(s.items||[]).find(i=>i.key===key); if(!it) return;
+  const pack=prompt('Pack size (orders round up to this increment):', it.packSize||1); if(pack!==null && parseInt(pack)>0) it.packSize=parseInt(pack);
+  const min=prompt('Minimum order quantity:', it.minOrder||0); if(min!==null && parseInt(min)>=0) it.minOrder=parseInt(min);
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+function removeSupItem(sid,key){
+  const s=supplierById(sid); if(!s) return;
+  s.items=(s.items||[]).filter(i=>i.key!==key);
+  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+
 function renderTeam(){
   const roster=(STATE.roster||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
   const rows=roster.map(w=>`<tr>
@@ -1304,6 +1627,8 @@ const TABS = [
   {id:'inv', label:'Inventory'},
   {id:'ship', label:'Shipments'},
   {id:'team', label:'Team', owner:true},
+  {id:'suppliers', label:'Suppliers', owner:true},
+  {id:'restock', label:'Restock', owner:true},
   {id:'settings', label:'Settings', owner:true},
 ];
 function setRole(r){
@@ -1320,7 +1645,8 @@ function renderTabs(){
   const toMake = STATE.batches.filter(b=>b.status==='make').length
                + neededBatches().length;
   const ready = STATE.batches.filter(b=>b.status==='ready').length;
-  const c = {orders:openOrders, make:toMake, ship:ready};
+  if(typeof checkReorder==='function') checkReorder();
+  const c = {orders:openOrders, make:toMake, ship:ready, restock:(STATE.restock||[]).length};
   $('#tabs').innerHTML = TABS.filter(t=>!(t.owner && ROLE!=='owner')).map(t=>{
     const badge = c[t.id]? `<span class="badge">${c[t.id]}</span>`:'';
     return `<button class="${t.id===CURRENT_TAB?'active':''}" onclick="switchTab('${t.id}')">${t.label}${badge}</button>`;
@@ -1332,6 +1658,6 @@ function switchTab(id){
   const v=$('#view-'+id); if(v) v.classList.add('active');
   renderTabs();
   ({dash:renderDash,orders:renderOrders,make:renderMake,prod:renderProd,
-    inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:()=>{}),work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{})}[id]||(()=>{}))();
+    inv:renderInv,ship:renderShip,team:(typeof renderTeam==='function'?renderTeam:()=>{}),suppliers:(typeof renderSuppliers==='function'?renderSuppliers:()=>{}),restock:(typeof renderRestock==='function'?renderRestock:()=>{}),work:(typeof renderWork==='function'?renderWork:()=>{}),settings:(typeof renderSettings==='function'?renderSettings:()=>{})}[id]||(()=>{}))();
 }
 </script>
