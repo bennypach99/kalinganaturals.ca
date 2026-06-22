@@ -45,7 +45,7 @@
     padding:1px 6px;margin-left:5px;vertical-align:middle}
   /* ── Layout ── */
   .wrap{max-width:1180px;margin:0 auto;padding:20px 18px 60px}
-  .view{display:none}.view.active{display:block;animation:fade .25s ease}
+  .view{display:none}.view.active{display:block;animation:fade .25s ease}.view.print-active{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
   .page-head{display:flex;align-items:flex-end;justify-content:space-between;
     margin-bottom:18px;gap:12px;flex-wrap:wrap}
@@ -162,6 +162,17 @@
 <div class="tabs no-print" id="tabs"></div>
 
 <datalist id="uomList"><option value="g"><option value="kg"><option value="ml"><option value="L"><option value="pcs"><option value="pack"><option value="roll"><option value="sheet"><option value="box"><option value="bottle"><option value="bag"></datalist>
+<div id="dateModal" class="pm" style="display:none">
+  <div class="pm-box" style="max-width:360px">
+    <h3 style="margin:0 0 10px">Ship-by date</h3>
+    <input id="dateModalInput" type="date" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px">
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn ghost" onclick="closeDateModal()">Close</button>
+      <button class="btn ghost" onclick="dateModalClear()">Clear date</button>
+      <button class="btn gold" onclick="dateModalSave()">Set</button>
+    </div>
+  </div>
+</div>
 <div id="orderForm" class="pm" style="display:none">
   <div class="pm-box" style="max-width:700px;width:100%;text-align:left;max-height:90vh;overflow-y:auto">
     <h3 style="margin:0 0 12px">New order</h3>
@@ -536,13 +547,25 @@ function addOrder(){
   pushOrderToBackend(order);   // manual/phone/market orders persist to the DB too
   closeOrderForm(); saveState();toast('Order added');renderOrders();renderTabs();
 }
+let _dateTarget=null;
 function setShipDate(id){
+  _dateTarget=id;
+  const m=document.getElementById('dateModal'); if(!m) return;
+  m.querySelector('#dateModalInput').value=(STATE.shipDates&&STATE.shipDates[id])||'';
+  m.style.display='flex';
+}
+function closeDateModal(){ const m=document.getElementById('dateModal'); if(m) m.style.display='none'; _dateTarget=null; }
+function dateModalSave(){
+  if(!_dateTarget) return;
+  const v=(document.getElementById('dateModalInput').value||'').trim();
   STATE.shipDates=STATE.shipDates||{};
-  const cur=STATE.shipDates[id]||'';
-  const d=prompt('Ship-by date (YYYY-MM-DD), leave blank to clear:', cur);
-  if(d===null) return;
-  if(d.trim()===''){ delete STATE.shipDates[id]; } else { STATE.shipDates[id]=d.trim(); }
-  saveState(); renderOrders(); renderTabs();
+  if(v){ STATE.shipDates[_dateTarget]=v; } else { delete STATE.shipDates[_dateTarget]; }
+  saveState(); if(typeof pushState==='function')pushState(); closeDateModal(); renderOrders(); renderTabs();
+}
+function dateModalClear(){
+  if(!_dateTarget) return;
+  STATE.shipDates=STATE.shipDates||{}; delete STATE.shipDates[_dateTarget];
+  saveState(); if(typeof pushState==='function')pushState(); closeDateModal(); renderOrders(); renderTabs();
 }
 function queueOrder(id){
   const o=STATE.orders.find(x=>x.id===id);if(!o)return;
