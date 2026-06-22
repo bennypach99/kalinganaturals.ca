@@ -127,6 +127,8 @@
     .view{display:none!important}.view.print-active{display:block!important}
     body{background:#fff}.card{box-shadow:none;border:1px solid #ccc}
   }
+.cmodal{position:fixed;inset:0;background:rgba(20,30,40,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
+  .cmodal .cbox{background:#fff;border-radius:10px;padding:22px;max-width:430px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.45)}
 </style>
 </head>
 <!-- GENERATED FROM operations.html by src/genworkers.py - DO NOT EDIT BY HAND -->
@@ -161,6 +163,7 @@
   <div class="view owner-only" id="view-settings"></div>
 </div>
 
+<div id="conflictModal" class="cmodal" style="display:none"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -818,34 +821,89 @@ async function patchOrderOnBackend(id, fields){
 function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
+
+// ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates'];
+let _syncedSnap = {};
+let _pushing = false;
+let _conflictCtx = null;
+function snapshot(){ const o={}; SYNC_AREAS.forEach(a=>{ o[a]=JSON.stringify(STATE[a]); }); return o; }
+function mergeAreas(base, sv){
+  const decisions={}, conflicts=[];
+  SYNC_AREAS.forEach(a=>{
+    const mine=JSON.stringify(STATE[a]);
+    const theirs=(sv && sv[a]!==undefined)?JSON.stringify(sv[a]):undefined;
+    const b=base[a];
+    if(theirs===undefined){ decisions[a]='mine'; return; }
+    if(mine===theirs){ decisions[a]='same'; return; }
+    const mineCh=mine!==b, theirsCh=theirs!==b;
+    if(mineCh && theirsCh){ conflicts.push(a); decisions[a]='conflict'; }
+    else if(theirsCh){ decisions[a]='theirs'; }
+    else { decisions[a]='mine'; }
+  });
+  return {decisions, conflicts};
+}
+async function fetchServerState(){
+  try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN}});
+    if(!r.ok) return null; const d=await r.json(); if(!d||!d.ok) return null; return d; }catch(e){ return null; }
+}
 async function pushState(){
-  if(!BACKEND_URL) return;
+  if(!BACKEND_URL || _pushing || _conflictCtx) return;
+  _pushing=true;
   try{
-    const r = await fetch(backendBase()+'/state', {method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify({value:productionPayload()})});
-    if(r.ok){ const d = await r.json(); if(d && d.ok){ stateVersion = d.version; const s = loadSync(); s.stateVersion = stateVersion; saveSync(s); } }
-  }catch(e){}
+    const d=await fetchServerState();
+    const sv=d?d.value:null;
+    const m=mergeAreas(_syncedSnap, sv);
+    SYNC_AREAS.forEach(a=>{ if(m.decisions[a]==='theirs' && sv && sv[a]!==undefined) STATE[a]=sv[a]; });
+    if(m.conflicts.length){ _pushing=false; showConflict(m.conflicts, sv); return; }
+    const r=await fetch(backendBase()+'/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify({value:productionPayload()})});
+    if(r.ok){ const rd=await r.json(); if(rd&&rd.ok){ stateVersion=rd.version; const s=loadSync(); s.stateVersion=stateVersion; saveSync(s); } }
+    _syncedSnap=snapshot(); cacheLocal(); rerenderCurrent();
+  }catch(e){} finally{ _pushing=false; }
 }
 async function pullState(){
-  if(!BACKEND_URL) return;
-  try{
-    const r = await fetch(backendBase()+'/state', {headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN}});
-    if(!r.ok) return;
-    const d = await r.json();
-    if(!d || !d.ok || !d.value) return;
-    if(d.version > stateVersion){
-      if(Array.isArray(d.value.batches)) STATE.batches = d.value.batches;
-      if(d.value.inventory && typeof d.value.inventory==='object') STATE.inventory = d.value.inventory;
-      if(Array.isArray(d.value.deliveries)) STATE.deliveries = d.value.deliveries;
-      if(d.value.ingredientCosts && typeof d.value.ingredientCosts==='object') STATE.ingredientCosts = d.value.ingredientCosts;
-      if(d.value.shipDates && typeof d.value.shipDates==='object') STATE.shipDates = d.value.shipDates;
-      stateVersion = d.version; const s = loadSync(); s.stateVersion = stateVersion; saveSync(s);
-      cacheLocal(); rerenderCurrent();
-    }
-  }catch(e){}
+  if(!BACKEND_URL || _conflictCtx) return;
+  const d=await fetchServerState();
+  if(!d || !d.value) return;
+  const sv=d.value;
+  const m=mergeAreas(_syncedSnap, sv);
+  let changed=false;
+  SYNC_AREAS.forEach(a=>{
+    if(m.decisions[a]==='theirs' && sv[a]!==undefined){ STATE[a]=sv[a]; _syncedSnap[a]=JSON.stringify(STATE[a]); changed=true; }
+    else if(m.decisions[a]==='same'){ _syncedSnap[a]=JSON.stringify(STATE[a]); }
+  });
+  stateVersion=d.version;
+  if(m.conflicts.length){ showConflict(m.conflicts, sv); }
+  if(changed){ cacheLocal(); rerenderCurrent(); }
+}
+function showConflict(areas, sv){
+  _conflictCtx={areas:areas.slice(), sv:sv};
+  const names={batches:'Production batches',inventory:'Inventory stock',deliveries:'Deliveries',ingredientCosts:'Ingredient costs',shipDates:'Delivery dates'};
+  const li=areas.map(a=>`<li>${names[a]||a}</li>`).join('');
+  const mEl=$('#conflictModal'); if(!mEl) return;
+  mEl.innerHTML=`<div class="cbox"><h3 style="margin-top:0">Sync conflict</h3>
+    <p class="muted">These changed here <b>and</b> on another device since the last sync:</p>
+    <ul style="margin:8px 0 8px 18px">${li}</ul>
+    <p class="muted">Choose which to keep — nothing is overwritten until you pick.</p>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button class="btn gold" onclick="resolveConflict('mine')">Keep mine</button>
+      <button class="btn teal" onclick="resolveConflict('theirs')">Use other device</button></div></div>`;
+  mEl.style.display='flex';
+}
+function resolveConflict(choice){
+  const ctx=_conflictCtx; if(!ctx) return;
+  ctx.areas.forEach(a=>{
+    const theirs = ctx.sv && ctx.sv[a]!==undefined ? ctx.sv[a] : undefined;
+    if(choice==='theirs' && theirs!==undefined){ STATE[a]=theirs; }
+    _syncedSnap[a]=JSON.stringify(theirs!==undefined?theirs:STATE[a]);
+  });
+  _conflictCtx=null; const mEl=$('#conflictModal'); if(mEl) mEl.style.display='none';
+  cacheLocal(); rerenderCurrent(); pushState();
 }
 
 function startBackendSync(){
   if(!BACKEND_URL) return;
+  _syncedSnap = snapshot();
   pollBackend(); pullState();
   setInterval(()=>{ pollBackend(); pullState(); }, POLL_MS);
 }
