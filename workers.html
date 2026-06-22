@@ -330,7 +330,10 @@ let STATE = {
   ingredientCosts:{}, // override php cost per gram-unit (optional)
   deliveries:[],  // {id, ingredient, grams, phpCost, date}
   shipDates:{},   // {orderId: 'YYYY-MM-DD'} ship-by dates (synced via production state)
-  stock:{},       // {productKey: finished bars on hand} (synced)
+  stock:{},       // {productKey: finished bars on hand} (legacy)
+  exportBox:{contents:{},started:''}, // current Canada-bound box (synced)
+  exportLog:[],   // shipped export boxes (synced)
+  boxStock:0,     // empty export boxes on hand (synced)
   workers:{},     // {cardId: name} NFC punch cards (synced)
   shifts:[],      // [{id,cardId,name,in,out,mins}] punch records (synced)
 };
@@ -369,9 +372,10 @@ function renderOrders(){
   open.forEach(o=>Object.entries(o.items).forEach(([k,q])=>{ if(q>0) assigned[k]=(assigned[k]||0)+q; }));
   const nextShip=(STATE.settings&&STATE.settings.nextShip)||'';
   const queue=[];
+  const made=producedMap();
   const rows=PROD_KEYS.map(pk=>{
-    const ord=assigned[pk]||0, stk=(STATE.stock&&STATE.stock[pk])||0, avail=stk-ord;
-    const target=ord+RESTOCK_BELOW;
+    const ord=assigned[pk]||0, stk=made[pk]||0, avail=stk-ord;
+    const target=ord;
     const inFlight=(STATE.batches||[]).filter(b=>b.product===pk && b.status!=='shipped' && !b.orderId).length*BATCH_SIZE;
     const toCreate = (stk+inFlight)<target ? Math.ceil((target-stk-inFlight)/BATCH_SIZE) : 0;
     if(ord===0 && stk===0 && toCreate===0) return '';
@@ -393,7 +397,7 @@ function renderOrders(){
     </div></div>
     <div class="card">
       <h3>Bars ordered vs stock <span class="muted">(${open.length} order${open.length===1?'':'s'})</span></h3>
-      ${rows?`<table><thead><tr><th>Bar</th><th class="right">Ordered</th><th class="right">In stock</th><th class="right">Available</th></tr></thead><tbody>${rows}</tbody></table>`
+      ${rows?`<table><thead><tr><th>Bar</th><th class="right">Ordered</th><th class="right">Made</th><th class="right">Available</th></tr></thead><tbody>${rows}</tbody></table>`
         :`<div class="empty"><div class="big">◇</div>No orders received yet.</div>`}
     </div>
     ${queue.length?`<div class="card"><h3>Batches to make <span class="muted">(priority order)</span></h3>
@@ -528,7 +532,7 @@ function unshipOrder(id){
 }
 function markReady(id){
   const b=STATE.batches.find(x=>x.id===id);if(!b)return;
-  b.status='ready'; STATE.stock=STATE.stock||{}; STATE.stock[b.product]=(STATE.stock[b.product]||0)+(b.qty||0); saveState();toast('Batch ready — '+(b.qty||0)+' bars to stock');renderMake();renderTabs();
+  b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); saveState();toast('Batch ready — '+(b.qty||0)+' bars added to the Canada box');renderMake();renderTabs();
 }
 
 /* ============================================================
@@ -814,25 +818,67 @@ function renderPackWizard(){
     <div class="view" id="slip"></div>`;
   packTick();
 }
+const BOX_CAP=150;
+function producedMap(){
+  const m={}; const c=(STATE.exportBox&&STATE.exportBox.contents)||{};
+  Object.entries(c).forEach(([k,q])=>m[k]=(m[k]||0)+q);
+  (STATE.exportLog||[]).forEach(b=>Object.entries(b.contents||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q));
+  return m;
+}
+function boxTotal(){ const c=(STATE.exportBox&&STATE.exportBox.contents)||{}; return Object.values(c).reduce((s,q)=>s+q,0); }
+function addBoxes(){ const n=parseInt(prompt('How many empty export boxes did you receive?','10'))||0; if(n>0){ STATE.boxStock=(STATE.boxStock||0)+n; saveState(); renderShip(); toast(n+' boxes added'); } }
+function printExportLabel(){
+  const box=STATE.exportBox||{contents:{}}; const total=boxTotal();
+  const rows=Object.entries(box.contents).filter(([k,q])=>q>0).map(([k,q])=>`<tr><td>${PRODUCTS[k].name}</td><td class="right">${q}</td></tr>`).join('');
+  const slip=$('#slip'); slip.classList.add('print-active');
+  slip.innerHTML=`<div class="card" style="max-width:520px;margin:20px auto">
+    <div style="text-align:center;border-bottom:2px solid var(--gold);padding-bottom:12px;margin-bottom:14px">
+      <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:var(--navy)">KALINGA NATURALS · EXPORT</div>
+      <div class="muted">Philippines → Canada · Bulk shipment</div></div>
+    <p><strong>Export box</strong> · ${today()} · ${total} bars</p>
+    <p style="margin:8px 0"><strong>Ship to:</strong><br>Kalinga Naturals (Benny)<br>Burlington, Ontario, Canada</p>
+    <table style="margin-top:10px"><thead><tr><th>Product</th><th class="right">Bars</th></tr></thead><tbody>${rows}</tbody></table>
+    <p style="margin-top:14px;text-align:center" class="muted">Bulk export — individual customer orders are fulfilled in Canada.</p>
+    <div class="no-print center" style="margin-top:16px">
+      <button class="btn gold" onclick="window.print()">Print</button>
+      <button class="btn ghost" onclick="closeSlip()">Close</button></div></div>`;
+  document.querySelectorAll('#view-ship>.card').forEach(c=>c.classList.add('no-print'));
+  window.scrollTo(0,document.body.scrollHeight);
+}
+function shipExportBox(){
+  const total=boxTotal();
+  if(total<BOX_CAP && !confirm('Box is only '+total+'/'+BOX_CAP+' full. Ship it anyway?')) return;
+  STATE.exportLog=STATE.exportLog||[];
+  STATE.exportLog.push({id:uid(), contents:Object.assign({},(STATE.exportBox&&STATE.exportBox.contents)||{}), bars:total, shipped:today()});
+  STATE.exportBox={contents:{}, started:today()};
+  STATE.boxStock=Math.max(0,(STATE.boxStock||0)-1);
+  saveState(); toast('Export box shipped to Canada'); renderShip(); renderTabs();
+}
 function renderShip(){
-  if(PACK){ renderPackWizard(); return; }
-  const sd=STATE.shipDates||{};
-  const open=STATE.orders.filter(o=>o.status!=='shipped');
-  const shipped=STATE.orders.filter(o=>o.status==='shipped');
-  const rows=open.slice().sort((a,b)=>((sd[a.id]||'9999')<(sd[b.id]||'9999')?-1:1)).map(o=>{
-    const items=Object.entries(o.items).map(([k,q])=>`${q}× ${PRODUCTS[k].name.split(' ')[0]}`).join(', ');
-    const ready=stockReady(o), due=sd[o.id]?`<div class="muted">ship by ${sd[o.id]}</div>`:'';
-    return `<tr><td><strong>${orderRef(o)}</strong>${due}</td><td>${items}<div class="muted">${orderBars(o)} bars</div></td>
-      <td class="no-print right">${ready?`<button class="btn sm gold" onclick="startPack('${o.id}')">▶ Start packing</button>`:`<span class="pill new">waiting for stock</span>`}</td></tr>`;
-  }).join('');
-  const shRows=shipped.slice().reverse().slice(0,30).map(o=>`<tr><td>${orderRef(o)}</td><td class="right">${orderBars(o)}</td><td>${o.shipped}</td><td class="no-print right"><button class="btn sm ghost" onclick="unshipOrder('${o.id}')">← Un-ship</button></td></tr>`).join('');
+  const box=STATE.exportBox||{contents:{}}; const total=boxTotal(); const full=total>=BOX_CAP;
+  const pct=Math.min(100,Math.round(total/BOX_CAP*100));
+  const crows=PROD_KEYS.filter(pk=>box.contents[pk]).map(pk=>`<tr><td>${PRODUCTS[pk].name.replace(' Bar','')}</td><td class="right">${box.contents[pk]} bars</td></tr>`).join('');
+  const log=(STATE.exportLog||[]).slice().reverse().slice(0,10);
+  const lrows=log.map(b=>`<tr><td>${b.shipped}</td><td class="right">${b.bars} bars</td></tr>`).join('');
   $('#view-ship').innerHTML=`
-    <div class="page-head"><div><h2>Shipments</h2><p>Pack and ship orders. The customer name appears only on the printed label.</p></div></div>
-    <div class="card"><h3>To pack <span class="muted">(${open.length})</span></h3>
-      ${open.length?`<table><thead><tr><th>Order</th><th>Items</th><th class="no-print"></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Nothing waiting to ship.</div>`}
+    <div class="page-head"><div><h2>Export to Canada</h2><p>Finished bars fill this box. When it reaches ${BOX_CAP} bars, print the box label and ship it. Benny fulfils customer orders in Canada.</p></div></div>
+    <div class="card">
+      <h3>Current box <span class="muted">${total} / ${BOX_CAP} bars</span></h3>
+      <div style="background:#eee;border-radius:8px;height:16px;overflow:hidden;margin:8px 0 14px">
+        <div style="height:100%;width:${pct}%;background:${full?'var(--ok)':'var(--gold)'}"></div></div>
+      ${total?`<table><thead><tr><th>Bar</th><th class="right">In box</th></tr></thead><tbody>${crows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Box is empty. Mark batches ready to fill it.</div>`}
+      <div class="no-print" style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn gold" onclick="printExportLabel()" ${full?'':'disabled'}>🖨 Print box label${full?'':' — fills at '+BOX_CAP}</button>
+        <button class="btn teal" onclick="shipExportBox()" ${full?'':'disabled'}>Ship box → Canada</button>
+      </div>
+      ${full?`<p class="muted" style="margin-top:8px;color:var(--ok)">✓ Box is full — print the label and ship it.</p>`:`<p class="muted" style="margin-top:8px">${BOX_CAP-total} more bars to fill the box.</p>`}
     </div>
-    <div class="card"><h3>Shipped <span class="muted">(${shipped.length})</span></h3>
-      ${shipped.length?`<table><thead><tr><th>Order</th><th class="right">Bars</th><th>Shipped</th><th class="no-print"></th></tr></thead><tbody>${shRows}</tbody></table>`:`<p class="muted">No shipments yet.</p>`}
+    <div class="card no-print"><h3>Empty boxes on hand <span class="muted">(${STATE.boxStock||0})</span></h3>
+      <button class="btn ghost" onclick="addBoxes()">+ Receive empty boxes</button>
+      ${(STATE.boxStock||0)<2?`<p class="muted" style="margin-top:6px;color:var(--bad)">Low on boxes — order more.</p>`:''}
+    </div>
+    <div class="card"><h3>Shipped boxes <span class="muted">(${(STATE.exportLog||[]).length})</span></h3>
+      ${log.length?`<table><thead><tr><th>Date</th><th class="right">Bars</th></tr></thead><tbody>${lrows}</tbody></table>`:`<p class="muted">None shipped yet.</p>`}
     </div>
     <div class="view" id="slip"></div>`;
 }
@@ -904,6 +950,9 @@ async function loadState(){
   if(!STATE.stock) STATE.stock={};
   if(!STATE.workers) STATE.workers={};
   if(!STATE.shifts) STATE.shifts=[];
+  if(!STATE.exportBox) STATE.exportBox={contents:{},started:''};
+  if(!STATE.exportLog) STATE.exportLog=[];
+  if(STATE.boxStock===undefined) STATE.boxStock=0;
   PROD_KEYS.forEach(pk=>{ if(STATE.stock[pk]===undefined) STATE.stock[pk]=0; });
 }
 
@@ -947,12 +996,12 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts','exportBox','exportLog','boxStock'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
@@ -1274,7 +1323,7 @@ const TABS = [
   {id:'make', label:'Make List'},
   {id:'prod', label:'Production'},
   {id:'inv', label:'Inventory'},
-  {id:'ship', label:'Shipments'},
+  {id:'ship', label:'Export'},
   {id:'stats', label:'Stats'},
   {id:'settings', label:'Settings', owner:true},
 ];
