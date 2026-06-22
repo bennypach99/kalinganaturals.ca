@@ -133,8 +133,18 @@
 .cmodal{position:fixed;inset:0;background:rgba(20,30,40,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
   .cmodal .cbox{background:#fff;border-radius:10px;padding:22px;max-width:430px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.45)}
 </style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body data-role="owner">
+<div id="adminGate" style="position:fixed;inset:0;z-index:600;background:#12283f;color:#F8F4EE;display:none;align-items:center;justify-content:center;text-align:center;padding:20px">
+  <div style="background:#fff;color:#1A3A5C;border-radius:14px;padding:30px 26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.45)">
+    <img src="images/logo-stacked.png" alt="Kalinga Naturals" style="height:64px;margin-bottom:10px" onerror="this.style.display='none'">
+    <h2 style="margin:6px 0 2px;font-family:Georgia,serif;color:#1A3A5C">Manager sign-in</h2>
+    <p style="color:#6b7a88;font-size:14px;margin:0 0 18px">Sign in to unlock this app for the team.</p>
+    <div id="gsiButton" style="display:flex;justify-content:center"></div>
+    <p id="adminErr" style="color:#b3261e;font-size:13px;margin-top:14px;display:none"></p>
+  </div>
+</div>
 
 <div class="topbar">
   <div class="brand"><span class="dot"></span>
@@ -302,6 +312,7 @@ let STATE = {
   stock:{},       // finished-bar stock (managed in workers app; synced)
   workers:{},     // {cardId:name} (managed in workers app; synced)
   shifts:[],      // punch records (managed in workers app; synced)
+  exportBox:{contents:{},started:''}, exportLog:[], boxStock:0, // export box (workers app; synced)
 };
 
 let CURRENT_TAB = 'dash';
@@ -825,6 +836,10 @@ const SKEY = 'kalinga:ops:v1';
 const BACKEND_URL        = 'https://kalinga-orders.kalinganaturals.workers.dev';
 const BACKEND_READ_TOKEN = '8888e2cfb32bedae3a134567d0a332b596dfa8120d076436';
 const BACKEND_WRITE_TOKEN= '87c7a0254b8a806809c285f753171e74e90b95f267a54eb5';
+/* ---- Manager sign-in (Google). Paste your Google OAuth Client ID between the quotes. ---- */
+const GOOGLE_CLIENT_ID = 'REPLACE_WITH_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const AUTH_ENABLED = GOOGLE_CLIENT_ID.indexOf('REPLACE') < 0;
+let ADMIN_SESSION = '';
 const POLL_MS = 10000;
 const SYNC_KEY = 'kalinga:ops:sync';
 let START_TAB = 'dash';
@@ -865,7 +880,7 @@ async function pollBackend(){
   if(!BACKEND_URL) return;
   const sync = loadSync();
   try{
-    const r = await fetch(backendBase()+'/orders?since='+encodeURIComponent(sync.cursor||''), {headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN}});
+    const r = await fetch(backendBase()+'/orders?since='+encodeURIComponent(sync.cursor||''), {headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN,'X-Kalinga-Session':ADMIN_SESSION}});
     if(!r.ok) return;
     const data = await r.json();
     if(!data || !data.ok || !Array.isArray(data.orders)) return;
@@ -877,20 +892,20 @@ async function pollBackend(){
 }
 async function pushOrderToBackend(order){
   if(!BACKEND_URL) return;
-  try{ await fetch(backendBase()+'/orders', {method:'POST',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify(order)}); }catch(e){}
+  try{ await fetch(backendBase()+'/orders', {method:'POST',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify(order)}); }catch(e){}
 }
 async function patchOrderOnBackend(id, fields){
   if(!BACKEND_URL) return;
-  try{ await fetch(backendBase()+'/orders/'+encodeURIComponent(id), {method:'PATCH',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify(fields)}); }catch(e){}
+  try{ await fetch(backendBase()+'/orders/'+encodeURIComponent(id), {method:'PATCH',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify(fields)}); }catch(e){}
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts','exportBox','exportLog','boxStock'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
@@ -911,7 +926,7 @@ function mergeAreas(base, sv){
   return {decisions, conflicts};
 }
 async function fetchServerState(){
-  try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN}});
+  try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN,'X-Kalinga-Session':ADMIN_SESSION}});
     if(!r.ok) return null; const d=await r.json(); if(!d||!d.ok) return null; return d; }catch(e){ return null; }
 }
 async function pushState(){
@@ -923,7 +938,7 @@ async function pushState(){
     const m=mergeAreas(_syncedSnap, sv);
     SYNC_AREAS.forEach(a=>{ if(m.decisions[a]==='theirs' && sv && sv[a]!==undefined) STATE[a]=sv[a]; });
     if(m.conflicts.length){ _pushing=false; showConflict(m.conflicts, sv); return; }
-    const r=await fetch(backendBase()+'/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify({value:productionPayload()})});
+    const r=await fetch(backendBase()+'/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify({value:productionPayload()})});
     if(r.ok){ const rd=await r.json(); if(rd&&rd.ok){ stateVersion=rd.version; const s=loadSync(); s.stateVersion=stateVersion; saveSync(s); } }
     _syncedSnap=snapshot(); cacheLocal(); rerenderCurrent();
   }catch(e){} finally{ _pushing=false; }
@@ -975,12 +990,41 @@ function startBackendSync(){
   setInterval(()=>{ pollBackend(); pullState(); }, POLL_MS);
 }
 
+/* ---- manager sign-in gate ---- */
+function showAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='flex'; initGsi(); }
+function hideAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='none'; }
+let _gsiTries=0;
+function initGsi(){
+  if(window.google && google.accounts && google.accounts.id){
+    google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID, callback:onGoogleCredential});
+    const el=document.getElementById('gsiButton');
+    if(el){ el.innerHTML=''; google.accounts.id.renderButton(el,{theme:'filled_blue',size:'large',shape:'pill',text:'signin_with'}); }
+    return;
+  }
+  if(_gsiTries++<60) setTimeout(initGsi,150);
+}
+async function onGoogleCredential(resp){
+  const err=document.getElementById('adminErr');
+  try{
+    const r=await fetch(backendBase()+'/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:resp.credential})});
+    const d=await r.json();
+    if(d&&d.ok&&d.token){ ADMIN_SESSION=d.token; hideAdminGate(); afterAdminLogin(d); }
+    else if(err){ err.style.display='block'; err.textContent=authErrMsg(d&&d.error); }
+  }catch(e){ if(err){ err.style.display='block'; err.textContent='Network error — check the connection and try again.'; } }
+}
+function authErrMsg(code){
+  return ({not_authorized:'This Google account is not on the approved list.',
+    email_unverified:'Your Google email is not verified.',
+    auth_not_configured:'Sign-in is not finished setting up yet.',
+    invalid_token:'Sign-in failed — please try again.'}[code])||'Sign-in failed — please try again.';
+}
+function afterAdminLogin(d){ try{ toast('Signed in'+(d&&d.name?' — '+d.name:'')); }catch(e){} startBackendSync(); }
 (async function init(){
   await loadState();
   FX=parseFloat($('#fxRate').value)||FX_DEFAULT;
   renderTabs();
   switchTab(START_TAB);
-  startBackendSync();
+  if(AUTH_ENABLED){ showAdminGate(); } else { startBackendSync(); }
 })();
 
 

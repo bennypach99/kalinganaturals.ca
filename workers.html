@@ -145,9 +145,19 @@
   .pm-box{background:#fff;border-radius:12px;padding:26px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <!-- GENERATED FROM operations.html by src/genworkers.py - DO NOT EDIT BY HAND -->
 <body data-role="prod">
+<div id="adminGate" style="position:fixed;inset:0;z-index:600;background:#12283f;color:#F8F4EE;display:none;align-items:center;justify-content:center;text-align:center;padding:20px">
+  <div style="background:#fff;color:#1A3A5C;border-radius:14px;padding:30px 26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.45)">
+    <img src="images/logo-stacked.png" alt="Kalinga Naturals" style="height:64px;margin-bottom:10px" onerror="this.style.display='none'">
+    <h2 style="margin:6px 0 2px;font-family:Georgia,serif;color:#1A3A5C">Manager sign-in</h2>
+    <p style="color:#6b7a88;font-size:14px;margin:0 0 18px">Sign in to unlock this app for the team.</p>
+    <div id="gsiButton" style="display:flex;justify-content:center"></div>
+    <p id="adminErr" style="color:#b3261e;font-size:13px;margin-top:14px;display:none"></p>
+  </div>
+</div>
 <div id="loginScreen" onclick="activateReader()">
   <div class="login-box">
     <img src="images/logo-stacked.png" alt="Kalinga Naturals" class="login-logo" onerror="this.style.display='none'">
@@ -362,7 +372,7 @@ function emptyMini(t){return `<div class="empty"><div class="big">◇</div>${t}<
    ============================================================ */
 const BATCH_SIZE=15, RESTOCK_BELOW=15;
 function createStockBatch(pk){
-  STATE.batches.push({id:uid(),product:pk,qty:BATCH_SIZE,status:'make',orderId:null,
+  STATE.batches.push({id:uid(),num:batchNum(),product:pk,qty:BATCH_SIZE,status:'make',orderId:null,
     started:null,curedAt:null,madeBy:'',minutes:0,created:today()});
   saveState();toast('Batch added to make list');renderOrders();renderTabs();
 }
@@ -434,7 +444,7 @@ function queueOrder(id){
   patchOrderOnBackend(id,{status:'make'});   // keep server in sync
   // create/merge batches per product
   Object.entries(o.items).forEach(([pk,q])=>{
-    STATE.batches.push({id:uid(),product:pk,qty:q,status:'make',orderId:id,
+    STATE.batches.push({id:uid(),num:batchNum(),product:pk,qty:q,status:'make',orderId:id,
       started:null,curedAt:null,madeBy:'',minutes:0,created:today()});
   });
   saveState();toast('Queued to make list');renderOrders();renderTabs();
@@ -688,7 +698,7 @@ function logProduction(pk){
   // move matching 'make' batches to 'cure', or create a stock batch
   const makeB=STATE.batches.filter(b=>b.status==='make'&&b.product===pk);
   if(makeB.length){ makeB.forEach(b=>{b.status='cure';b.curedAt=today();b.madeBy=by;b.minutes=min;}); }
-  else { STATE.batches.push({id:uid(),product:pk,qty,status:'cure',orderId:null,
+  else { STATE.batches.push({id:uid(),num:batchNum(),product:pk,qty,status:'cure',orderId:null,
     started:today(),curedAt:today(),madeBy:by,minutes:min,created:today()}); }
   saveState();toast(`${qty} bars logged — now curing`);renderProd();renderTabs();
 }
@@ -696,6 +706,42 @@ function logProduction(pk){
 /* ============================================================
    INVENTORY
    ============================================================ */
+function batchNum(){
+  const d=new Date(); const y=String(d.getFullYear()).slice(2);
+  const md=String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  const r=Math.random().toString(36).slice(2,6).toUpperCase();
+  return 'KN-'+y+md+'-'+r;
+}
+function printBatchLabel(id){
+  const b=STATE.batches.find(x=>x.id===id); if(!b) return;
+  const ready=b.curedAt?new Date(new Date(b.curedAt).getTime()+PRODUCTS[b.product].cure*86400000).toISOString().slice(0,10):'—';
+  const el=$('#invLabel'); if(!el) return;
+  el.classList.add('print-active');
+  el.innerHTML=`<div class="card" style="max-width:420px;margin:20px auto">
+    <div style="text-align:center;border-bottom:2px solid var(--gold);padding-bottom:10px;margin-bottom:12px">
+      <div style="font-family:Georgia,serif;font-size:20px;font-weight:700;color:var(--navy)">KALINGA NATURALS</div>
+      <div class="muted">Handcrafted soap · Philippines</div></div>
+    <div style="text-align:center">
+      <div style="font-size:15px;color:var(--navy);font-weight:600">${PRODUCTS[b.product].name}</div>
+      <div style="font-family:Georgia,serif;font-size:30px;font-weight:700;letter-spacing:1px;margin:8px 0;color:var(--teal)">${b.num||('#'+String(b.id).slice(-5).toUpperCase())}</div>
+      <div id="lbl-qr" style="display:flex;justify-content:center;margin:10px 0"></div>
+      <table style="margin:10px auto;text-align:left"><tbody>
+        <tr><td class="muted">Rack&nbsp;</td><td class="right"><strong>${b.rack||'—'}</strong></td></tr>
+        <tr><td class="muted">Bars&nbsp;</td><td class="right">${b.qty}</td></tr>
+        <tr><td class="muted">Pour date&nbsp;</td><td class="right">${b.curedAt||b.started||'—'}</td></tr>
+        <tr><td class="muted">Cure-ready&nbsp;</td><td class="right">${ready}</td></tr>
+        <tr><td class="muted">Made by&nbsp;</td><td class="right">${b.madeBy||'—'}</td></tr>
+      </tbody></table>
+    </div>
+    <div class="no-print center" style="margin-top:14px">
+      <button class="btn gold" onclick="window.print()">Print</button>
+      <button class="btn ghost" onclick="closeInvLabel()">Close</button></div></div>`;
+  document.querySelectorAll('#view-inv>.card').forEach(c=>c.classList.add('no-print'));
+  const q=document.getElementById('lbl-qr');
+  if(q&&window.QRCode){ try{ new QRCode(q,{text:'Kalinga Naturals | '+(b.num||b.id)+' | '+PRODUCTS[b.product].name+' | Rack '+(b.rack||'?')+' | '+b.qty+' bars | cure-ready '+ready, width:110, height:110, correctLevel:QRCode.CorrectLevel.M}); }catch(e){} }
+  window.scrollTo(0,document.body.scrollHeight);
+}
+function closeInvLabel(){ const el=$('#invLabel'); if(el){ el.classList.remove('print-active'); el.innerHTML=''; } document.querySelectorAll('#view-inv>.card').forEach(c=>c.classList.remove('no-print')); }
 function renderInv(){
   const master=allIngredients();
   const ingInputs=Object.values(master).map(i=>`<option value="${i.key}">${i.name}</option>`).join('');
@@ -717,11 +763,11 @@ function renderInv(){
   const crows=curing.map(b=>{
     const total=PRODUCTS[b.product].cure, d=daysSince(b.curedAt||b.started||b.created), done=d>=total;
     return `<tr>
-      <td><strong>Rack ${b.rack||'—'}</strong></td>
+      <td><strong>Rack ${b.rack||'—'}</strong><div class="muted">${b.num||''}</div></td>
       <td>${PRODUCTS[b.product].name.replace(' Bar','')}<div class="muted">${b.qty} bars · ${b.madeBy||'—'}</div></td>
       <td>${Math.min(d,total)}/${total} days${done?' ✓':''}<div class="muted">ready ${readyDate(b)}</div></td>
       <td><div id="qr-${b.id}"></div></td>
-      <td class="right no-print">${done?`<button class="btn sm gold" onclick="markReady('${b.id}')">Mark ready</button>`:''}</td></tr>`;
+      <td class="right no-print">${done?`<button class="btn sm gold" onclick="markReady('${b.id}')">Mark ready</button> `:''}<button class="btn sm ghost" onclick="printBatchLabel('${b.id}')">🖨 Label</button></td></tr>`;
   }).join('');
   $('#view-inv').innerHTML=`
     <div class="page-head"><div>
@@ -740,10 +786,11 @@ function renderInv(){
     <div class="card"><h3>Ingredient stock</h3>
       <table><thead><tr><th>Ingredient</th><th class="right">On hand</th><th class="right">Reserved</th><th class="right">Available</th><th>Status</th><th class="no-print"></th></tr></thead>
       <tbody>${rows}</tbody></table>
-    </div>`;
+    </div>
+    <div class="view" id="invLabel"></div>`;
   curing.forEach(b=>{
     const el=document.getElementById('qr-'+b.id);
-    if(el && window.QRCode){ el.innerHTML=''; try{ new QRCode(el,{text:'Kalinga Naturals | '+PRODUCTS[b.product].name+' | Rack '+(b.rack||'?')+' | '+b.qty+' bars | cure-ready '+readyDate(b), width:78, height:78, correctLevel:QRCode.CorrectLevel.M}); }catch(e){} }
+    if(el && window.QRCode){ el.innerHTML=''; try{ new QRCode(el,{text:'Kalinga Naturals | '+(b.num||b.id)+' | '+PRODUCTS[b.product].name+' | Rack '+(b.rack||'?')+' | '+b.qty+' bars | cure-ready '+readyDate(b), width:78, height:78, correctLevel:QRCode.CorrectLevel.M}); }catch(e){} }
   });
 }
 function addDelivery(){
@@ -929,6 +976,10 @@ const SKEY = 'kalinga:ops:v1';
 const BACKEND_URL        = 'https://kalinga-orders.kalinganaturals.workers.dev';
 const BACKEND_READ_TOKEN = '8888e2cfb32bedae3a134567d0a332b596dfa8120d076436';
 const BACKEND_WRITE_TOKEN= '87c7a0254b8a806809c285f753171e74e90b95f267a54eb5';
+/* ---- Manager sign-in (Google). Paste your Google OAuth Client ID between the quotes. ---- */
+const GOOGLE_CLIENT_ID = 'REPLACE_WITH_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const AUTH_ENABLED = GOOGLE_CLIENT_ID.indexOf('REPLACE') < 0;
+let ADMIN_SESSION = '';
 const POLL_MS = 10000;
 const SYNC_KEY = 'kalinga:ops:sync';
 let START_TAB = 'orders';
@@ -976,7 +1027,7 @@ async function pollBackend(){
   if(!BACKEND_URL) return;
   const sync = loadSync();
   try{
-    const r = await fetch(backendBase()+'/orders?since='+encodeURIComponent(sync.cursor||''), {headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN}});
+    const r = await fetch(backendBase()+'/orders?since='+encodeURIComponent(sync.cursor||''), {headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN,'X-Kalinga-Session':ADMIN_SESSION}});
     if(!r.ok) return;
     const data = await r.json();
     if(!data || !data.ok || !Array.isArray(data.orders)) return;
@@ -988,11 +1039,11 @@ async function pollBackend(){
 }
 async function pushOrderToBackend(order){
   if(!BACKEND_URL) return;
-  try{ await fetch(backendBase()+'/orders', {method:'POST',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify(order)}); }catch(e){}
+  try{ await fetch(backendBase()+'/orders', {method:'POST',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify(order)}); }catch(e){}
 }
 async function patchOrderOnBackend(id, fields){
   if(!BACKEND_URL) return;
-  try{ await fetch(backendBase()+'/orders/'+encodeURIComponent(id), {method:'PATCH',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify(fields)}); }catch(e){}
+  try{ await fetch(backendBase()+'/orders/'+encodeURIComponent(id), {method:'PATCH',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify(fields)}); }catch(e){}
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
@@ -1006,54 +1057,81 @@ let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
 function snapshot(){ const o={}; SYNC_AREAS.forEach(a=>{ o[a]=JSON.stringify(STATE[a]); }); return o; }
-function mergeAreas(base, sv){
-  const decisions={}, conflicts=[];
-  SYNC_AREAS.forEach(a=>{
-    const mine=JSON.stringify(STATE[a]);
-    const theirs=(sv && sv[a]!==undefined)?JSON.stringify(sv[a]):undefined;
-    const b=base[a];
-    if(theirs===undefined){ decisions[a]='mine'; return; }
-    if(mine===theirs){ decisions[a]='same'; return; }
-    const mineCh=mine!==b, theirsCh=theirs!==b;
-    if(mineCh && theirsCh){ conflicts.push(a); decisions[a]='conflict'; }
-    else if(theirsCh){ decisions[a]='theirs'; }
-    else { decisions[a]='mine'; }
+// ---- per-record auto-merge (multi-station safe) ----
+function _isObj(x){ return x && typeof x==='object' && !Array.isArray(x); }
+function _eq(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
+function mergeList(base, mine, theirs){
+  const baseArr=Array.isArray(base)?base:[];
+  const withId=arr=>arr.every(r=>r && r.id!=null);
+  if(!withId(mine) || !withId(theirs)) return theirs;
+  const bm={},mm={},tm={};
+  baseArr.forEach(r=>{ if(r&&r.id!=null) bm[r.id]=r; });
+  mine.forEach(r=>mm[r.id]=r); theirs.forEach(r=>tm[r.id]=r);
+  const ids=[...new Set([...mine.map(r=>r.id),...theirs.map(r=>r.id)])];
+  const out=[];
+  ids.forEach(id=>{
+    const b=bm[id], mr=mm[id], tr=tm[id];
+    if(mr&&tr){ out.push(merge3(b,mr,tr)); }
+    else if(mr&&!tr){ if(!(b&&_eq(b,mr))) out.push(mr); }   // keep unless theirs deleted an unchanged record
+    else if(!mr&&tr){ if(!(b&&_eq(b,tr))) out.push(tr); }
   });
-  return {decisions, conflicts};
+  out.sort((a,b)=>String(a.created||'').localeCompare(String(b.created||''))||String(a.id).localeCompare(String(b.id)));
+  return out;
+}
+function mergeObj(base, mine, theirs){
+  const bo=_isObj(base)?base:{}; const out={};
+  const keys=[...new Set([...Object.keys(mine),...Object.keys(theirs)])];
+  keys.forEach(k=>{ out[k]=merge3(bo[k], mine[k], theirs[k]); });
+  return out;
+}
+function merge3(base, mine, theirs){
+  if(theirs===undefined) return mine;
+  if(mine===undefined) return theirs;
+  if(_eq(mine,theirs)) return mine;
+  if(_eq(mine,base)) return theirs;   // only the other device changed
+  if(_eq(theirs,base)) return mine;    // only this device changed
+  if(Array.isArray(mine)&&Array.isArray(theirs)) return mergeList(base,mine,theirs);
+  if(_isObj(mine)&&_isObj(theirs)) return mergeObj(base,mine,theirs);
+  return theirs;                       // scalar both changed -> remote wins (deterministic)
+}
+function mergeServer(sv){
+  let changed=false;
+  SYNC_AREAS.forEach(a=>{
+    const base=_syncedSnap[a]!==undefined?JSON.parse(_syncedSnap[a]):undefined;
+    const mine=STATE[a];
+    const theirs=sv?sv[a]:undefined;
+    if(theirs===undefined) return;
+    const merged=merge3(base, mine, theirs);
+    if(!_eq(merged, mine)){ STATE[a]=merged; changed=true; }
+  });
+  return changed;
 }
 async function fetchServerState(){
-  try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN}});
+  try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN,'X-Kalinga-Session':ADMIN_SESSION}});
     if(!r.ok) return null; const d=await r.json(); if(!d||!d.ok) return null; return d; }catch(e){ return null; }
 }
 async function pushState(){
-  if(!BACKEND_URL || _pushing || _conflictCtx) return;
+  if(!BACKEND_URL || _pushing) return;
   _pushing=true;
   try{
     const d=await fetchServerState();
     const sv=d?d.value:null;
-    const m=mergeAreas(_syncedSnap, sv);
-    SYNC_AREAS.forEach(a=>{ if(m.decisions[a]==='theirs' && sv && sv[a]!==undefined) STATE[a]=sv[a]; });
-    if(m.conflicts.length){ _pushing=false; showConflict(m.conflicts, sv); return; }
-    const r=await fetch(backendBase()+'/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN},body:JSON.stringify({value:productionPayload()})});
+    mergeServer(sv);                       // fold in any remote changes first, then write the union
+    const r=await fetch(backendBase()+'/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Kalinga-Token':BACKEND_WRITE_TOKEN,'X-Kalinga-Session':ADMIN_SESSION},body:JSON.stringify({value:productionPayload()})});
     if(r.ok){ const rd=await r.json(); if(rd&&rd.ok){ stateVersion=rd.version; const s=loadSync(); s.stateVersion=stateVersion; saveSync(s); } }
     _syncedSnap=snapshot(); cacheLocal(); rerenderCurrent();
   }catch(e){} finally{ _pushing=false; }
 }
 async function pullState(){
-  if(!BACKEND_URL || _conflictCtx) return;
+  if(!BACKEND_URL || _pushing) return;
   const d=await fetchServerState();
   if(!d || !d.value) return;
-  const sv=d.value;
-  const m=mergeAreas(_syncedSnap, sv);
-  let changed=false;
-  SYNC_AREAS.forEach(a=>{
-    if(m.decisions[a]==='theirs' && sv[a]!==undefined){ STATE[a]=sv[a]; _syncedSnap[a]=JSON.stringify(STATE[a]); changed=true; }
-    else if(m.decisions[a]==='same'){ _syncedSnap[a]=JSON.stringify(STATE[a]); }
-  });
+  const changed=mergeServer(d.value);
   stateVersion=d.version;
-  if(m.conflicts.length){ showConflict(m.conflicts, sv); }
+  _syncedSnap=snapshot();
   if(changed){ cacheLocal(); rerenderCurrent(); }
 }
+
 function showConflict(areas, sv){
   _conflictCtx={areas:areas.slice(), sv:sv};
   const names={batches:'Production batches',inventory:'Inventory stock',deliveries:'Deliveries',ingredientCosts:'Ingredient costs',shipDates:'Delivery dates'};
@@ -1148,12 +1226,41 @@ function manualSignIn(){
   punchIn(cardId,name);
 }
 
+/* ---- manager sign-in gate ---- */
+function showAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='flex'; initGsi(); }
+function hideAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='none'; }
+let _gsiTries=0;
+function initGsi(){
+  if(window.google && google.accounts && google.accounts.id){
+    google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID, callback:onGoogleCredential});
+    const el=document.getElementById('gsiButton');
+    if(el){ el.innerHTML=''; google.accounts.id.renderButton(el,{theme:'filled_blue',size:'large',shape:'pill',text:'signin_with'}); }
+    return;
+  }
+  if(_gsiTries++<60) setTimeout(initGsi,150);
+}
+async function onGoogleCredential(resp){
+  const err=document.getElementById('adminErr');
+  try{
+    const r=await fetch(backendBase()+'/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:resp.credential})});
+    const d=await r.json();
+    if(d&&d.ok&&d.token){ ADMIN_SESSION=d.token; hideAdminGate(); afterAdminLogin(d); }
+    else if(err){ err.style.display='block'; err.textContent=authErrMsg(d&&d.error); }
+  }catch(e){ if(err){ err.style.display='block'; err.textContent='Network error — check the connection and try again.'; } }
+}
+function authErrMsg(code){
+  return ({not_authorized:'This Google account is not on the approved list.',
+    email_unverified:'Your Google email is not verified.',
+    auth_not_configured:'Sign-in is not finished setting up yet.',
+    invalid_token:'Sign-in failed — please try again.'}[code])||'Sign-in failed — please try again.';
+}
+function afterAdminLogin(d){ try{ toast('Signed in'+(d&&d.name?' — '+d.name:'')); }catch(e){} startBackendSync(); }
 (async function init(){
   await loadState();
   FX=parseFloat($('#fxRate').value)||FX_DEFAULT;
   renderTabs();
   switchTab(START_TAB);
-  startBackendSync();
+  if(AUTH_ENABLED){ showAdminGate(); } else { startBackendSync(); }
 })();
 
 
@@ -1292,31 +1399,62 @@ function renderSettings(){
 /* ============================================================
    ROLE + TABS
    ============================================================ */
+function weekStart(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setHours(0,0,0,0); x.setDate(x.getDate()-day); return x; }
 function renderStats(){
-  const shifts=STATE.shifts||[]; const now=Date.now(); const weekAgo=now-7*86400000;
+  const shifts=STATE.shifts||[]; const now=Date.now();
   const open=shifts.filter(s=>!s.out);
-  const hours={};
-  shifts.forEach(s=>{ const inMs=new Date(s.in).getTime(); if(inMs>=weekAgo){
-    const mins=s.out?(s.mins||0):Math.round((now-inMs)/60000); hours[s.name]=(hours[s.name]||0)+mins; }});
-  const made=STATE.batches.filter(b=>['cure','ready','shipped'].indexOf(b.status)>=0 && b.madeBy);
-  const prod={};
-  made.forEach(b=>{ const w=prod[b.madeBy]||(prod[b.madeBy]={batches:0,bars:0,min:0,setup:0,make:0,clean:0});
-    w.batches++; w.bars+=b.qty||0; w.min+=b.minutes||0; w.setup+=b.setupMin||0; w.make+=b.makeMin||0; w.clean+=b.cleanupMin||0; });
   const t2=(d)=>new Date(d).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit'});
   const openRows=open.map(s=>{const el=Math.round((now-new Date(s.in).getTime())/60000);return `<tr><td><strong>${s.name}</strong></td><td>${t2(s.in)}</td><td class="right">${(el/60).toFixed(1)} h</td></tr>`;}).join('');
-  const hRows=Object.entries(hours).sort((a,b)=>b[1]-a[1]).map(([n,m])=>`<tr><td>${n}</td><td class="right">${(m/60).toFixed(1)} h</td></tr>`).join('');
-  const pRows=Object.entries(prod).sort((a,b)=>b[1].bars-a[1].bars).map(([n,w])=>`<tr><td><strong>${n}</strong></td><td class="right">${w.batches}</td><td class="right">${w.bars}</td><td class="right">${w.batches?Math.round(w.make/w.batches):0} min</td><td class="right">${w.batches?Math.round(w.setup/w.batches):0} / ${w.batches?Math.round(w.clean/w.batches):0} min</td></tr>`).join('');
+
+  // ---- work week Mon-Sat ----
+  const wk=weekStart(new Date()); const wkMs=wk.getTime();
+  const days=['Mon','Tue','Wed','Thu','Fri','Sat'];
+  const grid={};
+  shifts.forEach(s=>{
+    const inD=new Date(s.in); const inMs=inD.getTime();
+    const endMs=s.out?new Date(s.out).getTime():now;
+    if(endMs<wkMs) return;
+    const di=Math.floor((new Date(inD).setHours(0,0,0,0)-wkMs)/86400000);
+    if(di<0||di>5) return;
+    const mins=s.out?(s.mins||Math.round((endMs-inMs)/60000)):Math.round((now-inMs)/60000);
+    (grid[s.name]||(grid[s.name]=[0,0,0,0,0,0]))[di]+=mins;
+  });
+  const fmt=m=>m?(m/60).toFixed(1):'·';
+  const wkRows=Object.entries(grid).sort((a,b)=>b[1].reduce((x,y)=>x+y,0)-a[1].reduce((x,y)=>x+y,0)).map(([n,arr])=>{
+    const tot=arr.reduce((x,y)=>x+y,0);
+    return `<tr><td><strong>${n}</strong></td>${arr.map(m=>`<td class="right">${fmt(m)}</td>`).join('')}<td class="right"><strong>${(tot/60).toFixed(1)} h</strong></td></tr>`;
+  }).join('');
+  const wkDate=`${wk.toISOString().slice(0,10)}`;
+
+  // ---- this week's batches ----
+  const inWeek=b=>{ const d=b.curedAt||b.started; return d && new Date(d).getTime()>=wkMs; };
+  const made=STATE.batches.filter(b=>['cure','ready','shipped'].indexOf(b.status)>=0 && b.madeBy && inWeek(b));
+  const agg={};
+  made.forEach(b=>{ const w=agg[b.madeBy]||(agg[b.madeBy]={batches:0,bars:0,setup:0,make:0,clean:0});
+    w.batches++; w.bars+=b.qty||0; w.setup+=b.setupMin||0; w.make+=b.makeMin||0; w.clean+=b.cleanupMin||0; });
+  const phaseCard=(title,key,blurb)=>{
+    const rows=Object.entries(agg).filter(([n,w])=>w.batches).sort((a,b)=>(a[1][key]/a[1].batches)-(b[1][key]/b[1].batches)).map(([n,w],i)=>{
+      const avg=w.batches?Math.round(w[key]/w.batches):0;
+      const medal=i===0?'🥇':(i===1?'🥈':(i===2?'🥉':''));
+      return `<tr><td><strong>${n}</strong> ${medal}</td><td class="right">${w.batches}</td><td class="right">${w[key]} min</td><td class="right">${avg} min/batch</td></tr>`;
+    }).join('');
+    return `<div class="card"><h3>${title} <span class="muted">this week</span></h3>
+      <p class="muted" style="margin-top:-4px">${blurb}</p>
+      ${rows?`<table><thead><tr><th>Worker</th><th class="right">Batches</th><th class="right">Total</th><th class="right">Avg</th></tr></thead><tbody>${rows}</tbody></table>`:`<p class="muted">No batches yet this week.</p>`}
+    </div>`;
+  };
+
   $('#view-stats').innerHTML=`
-    <div class="page-head"><div><h2>Stats</h2><p>Who's working, hours this week, and what each maker has produced.</p></div></div>
+    <div class="page-head"><div><h2>Stats</h2><p>This work week (Mon–Sat), starting ${wkDate}. Keep your times sharp and your batches clean.</p></div></div>
     <div class="card"><h3>Currently working <span class="muted">(${open.length})</span></h3>
       ${open.length?`<table><thead><tr><th>Worker</th><th>Punched in</th><th class="right">Elapsed</th></tr></thead><tbody>${openRows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>No one is punched in.</div>`}
     </div>
-    <div class="card"><h3>Hours — last 7 days</h3>
-      ${hRows?`<table><thead><tr><th>Worker</th><th class="right">Hours</th></tr></thead><tbody>${hRows}</tbody></table>`:`<p class="muted">No shifts recorded yet.</p>`}
+    <div class="card"><h3>Work week — hours per day</h3>
+      ${wkRows?`<table><thead><tr><th>Worker</th>${days.map(d=>`<th class="right">${d}</th>`).join('')}<th class="right">Total</th></tr></thead><tbody>${wkRows}</tbody></table>`:`<p class="muted">No hours recorded this week yet.</p>`}
     </div>
-    <div class="card"><h3>Production by worker</h3>
-      ${pRows?`<table><thead><tr><th>Worker</th><th class="right">Batches</th><th class="right">Bars</th><th class="right">Avg make time</th><th class="right">Avg setup / cleanup</th></tr></thead><tbody>${pRows}</tbody></table>`:`<p class="muted">No batches completed yet.</p>`}
-    </div>`;
+    ${phaseCard('Prep','setup','Setup &amp; mise en place. Faster is better — but never skip a safety step.')}
+    ${phaseCard('Production','make','Time mixing, pouring and moulding each batch.')}
+    ${phaseCard('Cleanup','clean','Neutralise, wash and reset the station. A clean shop is a safe shop.')}`;
 }
 const TABS = [
   {id:'orders', label:'Orders'},
