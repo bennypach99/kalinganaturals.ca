@@ -165,7 +165,18 @@
     <div class="login-date" id="loginDate"></div>
     <div class="login-prompt" id="loginPrompt">Tap the screen, then scan your card to start</div>
     <button class="login-manual" id="loginManual" onclick="event.stopPropagation();openSigninModal()">No card? Sign in with PIN</button>
-    <button class="login-manual" id="loginManage" style="margin-top:8px;opacity:.75;font-size:13px" onclick="event.stopPropagation();requireManager(openRoster)">Manage team</button>
+    <button class="login-manual" id="loginCard" style="margin-top:8px;opacity:.7;font-size:13px" onclick="event.stopPropagation();requireManager(openCardLink)">Link a card (manager)</button>
+  </div>
+</div>
+<datalist id="uomList"><option value="g"><option value="kg"><option value="ml"><option value="L"><option value="pcs"><option value="pack"><option value="roll"><option value="sheet"><option value="box"><option value="bottle"><option value="bag"></datalist>
+<div id="cardModal" class="pm" style="display:none">
+  <div class="pm-box" style="max-width:520px;text-align:left">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">Link NFC cards</h3>
+      <button class="btn ghost sm" onclick="closeCardLink()">Close</button>
+    </div>
+    <p class="muted" style="margin-top:4px">Tap “Link card”, then hold the worker's NFC card to the tablet. Workers are added in the office app.</p>
+    <div id="cardBody"></div>
   </div>
 </div>
 <div id="mgrModal" class="pm" style="display:none">
@@ -396,6 +407,7 @@ let STATE = {
   reorder:{},     // {supplyKey: reorder level} (synced)
   itemSupplier:{},// {supplyKey: supplierId} chosen supplier per item (synced)
   supplies:{},    // {key:{name,qty}} non-ingredient supplies e.g. labels/wrap (synced)
+  uom:{},         // {supplyKey: unit of measure} (synced)
 };
 
 let CURRENT_TAB = 'dash';
@@ -829,11 +841,13 @@ function renderInv(){
   const ingInputs=Object.values(ing).map(i=>`<option value="${i.key}">${i.name}</option>`).join('');
   const sups=(STATE.suppliers||[]);
   const supOptions=key=>{ const cur=(STATE.itemSupplier||{})[key]||''; return `<option value="">— supplier —</option>`+sups.map(s=>`<option value="${s.id}" ${s.id===cur?'selected':''}>${s.name}</option>`).join(''); };
-  const rowFor=(key,name,unit)=>{
+  const rowFor=(key,name)=>{
+    const unit=supplyUnit(key);
     const onHand=supplyOnHand(key), lvl=(STATE.reorder||{})[key]||0, low=lvl>0 && onHand<=lvl;
     return `<tr>
       <td>${name}</td>
       <td class="right ${low?'low':''}">${onHand} ${unit}</td>
+      <td class="no-print"><input list="uomList" value="${unit}" style="width:62px" onchange="setUom('${key}',this.value);renderInv()" title="unit of measure"></td>
       <td class="right no-print"><input type="number" min="0" value="${lvl||''}" placeholder="—" style="width:74px" onchange="setReorder('${key}',this.value)"></td>
       <td class="no-print"><select onchange="setItemSupplier('${key}',this.value)">${supOptions(key)}</select></td>
       <td>${low?'<span class="pill new">low</span>':'<span class="pill ready">ok</span>'}</td>
@@ -853,14 +867,15 @@ function renderInv(){
       <button class="btn gold" onclick="addDelivery()">+ Add to stock</button>
     </div>
     <div class="card"><h3>Ingredients</h3>
-      <table><thead><tr><th>Ingredient</th><th class="right">On hand</th><th class="right no-print">Reorder at</th><th class="no-print">Supplier</th><th>Status</th><th class="no-print"></th></tr></thead>
+      <table><thead><tr><th>Ingredient</th><th class="right">On hand</th><th class="no-print">Unit</th><th class="right no-print">Reorder at</th><th class="no-print">Supplier</th><th>Status</th><th class="no-print"></th></tr></thead>
       <tbody>${ingRows}</tbody></table>
     </div>
     <div class="card"><h3>Packaging & supplies</h3>
-      <table><thead><tr><th>Item</th><th class="right">On hand</th><th class="right no-print">Reorder at</th><th class="no-print">Supplier</th><th>Status</th><th class="no-print"></th></tr></thead>
+      <table><thead><tr><th>Item</th><th class="right">On hand</th><th class="no-print">Unit</th><th class="right no-print">Reorder at</th><th class="no-print">Supplier</th><th>Status</th><th class="no-print"></th></tr></thead>
       <tbody>${boxRow}${supRows}</tbody></table>
       <div class="no-print row" style="gap:8px;align-items:flex-end;margin-top:10px">
         <label class="fld" style="flex:2"><span>Add a custom supply</span><input id="newSupplyName" placeholder="e.g. Kraft labels"></label>
+        <label class="fld" style="flex:1"><span>Unit</span><input id="newSupplyUom" list="uomList" placeholder="pcs"></label>
         <button class="btn ghost" onclick="addCustomSupply()">+ Add supply</button>
       </div>
     </div>`;
@@ -875,7 +890,7 @@ function renderCuring(){
       <td>${PRODUCTS[b.product].name.replace(' Bar','')}<div class="muted">${b.qty} bars · ${b.madeBy||'—'}</div></td>
       <td>${Math.min(d,total)}/${total} days${done?' ✓':''}<div class="muted">ready ${readyDate(b)}</div></td>
       <td><div id="qr-${b.id}"></div></td>
-      <td class="right no-print">${done?`<button class="btn sm gold" onclick="markReady('${b.id}')">Mark ready</button> `:''}<button class="btn sm ghost" onclick="printBatchLabel('${b.id}')">🖨 Label</button></td></tr>`;
+      <td class="right no-print">${done?`<button class="btn sm gold" onclick="markReady('${b.id}')">Mark ready</button> `:`<button class="btn sm teal" onclick="markReady('${b.id}')" title="temporary test button">✓ Done (test)</button> `}<button class="btn sm ghost" onclick="printBatchLabel('${b.id}')">🖨 Label</button></td></tr>`;
   }).join('');
   $('#view-curing').innerHTML=`
     <div class="page-head"><div>
@@ -1107,6 +1122,7 @@ async function loadState(){
   if(!STATE.reorder) STATE.reorder={};
   if(!STATE.itemSupplier) STATE.itemSupplier={};
   if(!STATE.supplies) STATE.supplies={};
+  if(!STATE.uom) STATE.uom={};
   if(STATE.roster.length===0 && STATE.workers && Object.keys(STATE.workers).length){
     const seen={};
     Object.entries(STATE.workers).forEach(([cid,nm])=>{ const k=String(nm).toLowerCase(); if(seen[k])return; seen[k]=1;
@@ -1159,12 +1175,12 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies, uom:STATE.uom}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies','uom'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
@@ -1316,7 +1332,7 @@ function handleCard(cardId){
     if(w){
       (STATE.roster||[]).forEach(x=>{ if(x.cardId===cardId) x.cardId=''; });   // a card belongs to one worker
       w.cardId=cardId; saveState(); if(typeof pushState==='function') pushState();
-      toast('Card linked to '+w.name); renderRoster();
+      toast('Card linked to '+w.name); if(typeof renderCardLink==='function')renderCardLink(); renderRoster();
     }
     return;
   }
@@ -1425,7 +1441,7 @@ function removeWorker(id){
 function registerCard(id){
   _regCardFor=id; const w=workerById(id);
   if(!('NDEFReader' in window)){ toast('No card reader here — link cards on a workshop tablet.'); _regCardFor=null; return; }
-  activateReader(); toast('Scan the card now for '+(w?w.name:'this worker')); renderRoster();
+  activateReader(); toast('Scan the card now for '+(w?w.name:'this worker')); if(typeof renderCardLink==='function')renderCardLink(); renderRoster();
 }
 
 /* ============================================================
@@ -1438,7 +1454,8 @@ function supplyOnHand(key){
   if(STATE.supplies&&STATE.supplies[key]) return STATE.supplies[key].qty||0;
   return (STATE.inventory&&STATE.inventory[key])||0;
 }
-function supplyUnit(key){ if(key==='box') return 'boxes'; if(allIngredients()[key]) return 'g'; return 'units'; }
+function supplyUnit(key){ const u=(STATE.uom||{})[key]; if(u) return u; if(key==='box') return 'box'; if(allIngredients()[key]) return 'g'; if(STATE.supplies&&STATE.supplies[key]&&STATE.supplies[key].unit) return STATE.supplies[key].unit; return 'units'; }
+function setUom(key,val){ val=(val||'').trim(); STATE.uom=STATE.uom||{}; if(!val) delete STATE.uom[key]; else STATE.uom[key]=val; if(STATE.supplies&&STATE.supplies[key]) STATE.supplies[key].unit=val; saveState(); if(typeof pushState==='function') pushState(); }
 function allSupplyKeys(){ return Object.keys(allIngredients()).concat(['box']).concat(Object.keys(STATE.supplies||{})); }
 function addSupplyStock(key, qty){
   qty=qty||0;
@@ -1475,7 +1492,9 @@ function setItemSupplier(key,sid){ STATE.itemSupplier=STATE.itemSupplier||{};
   saveState(); if(typeof pushState==='function') pushState(); renderInv(); }
 function addCustomSupply(){
   const name=($('#newSupplyName').value||'').trim(); if(!name){ toast('Enter a name'); return; }
-  const key='sup-'+uid(); STATE.supplies=STATE.supplies||{}; STATE.supplies[key]={name, qty:0};
+  const unit=((($('#newSupplyUom')||{}).value)||'units').trim()||'units';
+  const key='sup-'+uid(); STATE.supplies=STATE.supplies||{}; STATE.supplies[key]={name, qty:0, unit};
+  STATE.uom=STATE.uom||{}; STATE.uom[key]=unit;
   saveState(); if(typeof pushState==='function') pushState(); renderInv(); toast(name+' added');
 }
 function removeRestock(id){ STATE.restock=(STATE.restock||[]).filter(r=>r.id!==id); saveState(); if(typeof pushState==='function') pushState(); renderRestock(); renderTabs(); }
@@ -1619,8 +1638,8 @@ function renderSuppliers(){
   const cards=sups.map(s=>{
     const itemRows=(s.items||[]).map(it=>`<tr>
       <td>${supplyName(it.key)}</td>
-      <td class="right">${it.packSize||1}</td>
-      <td class="right">${it.minOrder||0}</td>
+      <td class="right">${it.packSize||1} ${supplyUnit(it.key)}</td>
+      <td class="right">${it.minOrder||0} ${supplyUnit(it.key)}</td>
       <td class="right no-print"><button class="btn sm ghost" onclick="editSupItem('${s.id}','${it.key}')">Edit</button> <button class="btn sm ghost" onclick="removeSupItem('${s.id}','${it.key}')">✕</button></td>
     </tr>`).join('');
     return `<div class="card">
@@ -1637,6 +1656,7 @@ function renderSuppliers(){
         <label class="fld" style="flex:2"><span>Add item</span><select id="si-key-${s.id}">${supplyKeyOptions()}</select></label>
         <label class="fld" style="flex:1"><span>Pack size</span><input id="si-pack-${s.id}" type="number" min="1" value="1"></label>
         <label class="fld" style="flex:1"><span>Min order</span><input id="si-min-${s.id}" type="number" min="0" value="0"></label>
+        <label class="fld" style="flex:1"><span>Unit</span><input id="si-uom-${s.id}" list="uomList" placeholder="pcs"></label>
         <button class="btn gold" onclick="addSupItem('${s.id}')">+ Add</button>
       </div>
     </div>`;
@@ -1687,6 +1707,7 @@ function addSupItem(sid){
   const min=Math.max(0,parseInt($('#si-min-'+sid).value)||0);
   s.items=s.items||[];
   if(s.items.some(it=>it.key===key)){ toast('Already listed for this supplier'); return; }
+  const u=((($('#si-uom-'+sid)||{}).value)||'').trim(); if(u){ STATE.uom=STATE.uom||{}; STATE.uom[key]=u; }
   s.items.push({key, packSize:pack, minOrder:min});
   saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(supplyName(key)+' added');
 }
@@ -1701,6 +1722,22 @@ function removeSupItem(sid,key){
   const s=supplierById(sid); if(!s) return;
   s.items=(s.items||[]).filter(i=>i.key!==key);
   saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
+}
+/* ---- manager-gated NFC card linking (workers are created in operations.html) ---- */
+function openCardLink(){ renderCardLink(); const m=document.getElementById('cardModal'); if(m) m.style.display='flex'; }
+function closeCardLink(){ _regCardFor=null; const m=document.getElementById('cardModal'); if(m) m.style.display='none'; }
+function renderCardLink(){
+  const m=document.getElementById('cardModal'); if(!m) return;
+  const roster=(STATE.roster||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const rows=roster.map(w=>`<tr>
+    <td><strong>${w.name}</strong>${w.mgr?' <span class="pill ready">mgr</span>':''}</td>
+    <td class="right">${w.cardId?'card ✓':'<span class="muted">no card</span>'}</td>
+    <td class="right no-print"><button class="btn sm gold" onclick="registerCard('${w.id}')">${w.cardId?'Re-link':'Link card'}</button></td>
+  </tr>`).join('');
+  m.querySelector('#cardBody').innerHTML=`
+    ${_regCardFor?`<p class="muted" style="color:var(--teal)">● Scan the card now to link it…</p>`:''}
+    <table style="margin-top:8px"><thead><tr><th>Worker</th><th class="right">Card</th><th class="no-print"></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="3" class="muted">No workers yet — add them in the office app.</td></tr>'}</tbody></table>`;
 }
 /* ---- manager mode (PIN-gated) ---- */
 let MANAGER=false, _mgrThen=null;
