@@ -132,17 +132,48 @@
   }
 .cmodal{position:fixed;inset:0;background:rgba(20,30,40,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
   .cmodal .cbox{background:#fff;border-radius:10px;padding:22px;max-width:430px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.45)}
+  #loginScreen{position:fixed;inset:0;z-index:500;background:#1A3A5C;color:#F8F4EE;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer}
+  body.in #loginScreen{display:none}
+  body:not(.in) .topbar,body:not(.in) .tabs,body:not(.in) .wrap{visibility:hidden}
+  .login-box{max-width:560px;padding:24px}
+  .login-logo{width:240px;max-width:70%;background:#F8F4EE;border-radius:16px;padding:18px;margin-bottom:14px}
+  .login-clock{font-family:Georgia,serif;font-size:88px;font-weight:700;line-height:1;color:#D4A853}
+  .login-date{font-size:22px;letter-spacing:1px;margin-top:6px;color:rgba(248,244,238,.85)}
+  .login-prompt{margin-top:28px;font-size:19px}
+  .login-manual{display:block;margin:18px auto 0;background:none;border:none;color:rgba(248,244,238,.55);text-decoration:underline;cursor:pointer;font-size:13px}
+  .pm{position:fixed;inset:0;z-index:520;background:rgba(20,30,40,.6);display:flex;align-items:center;justify-content:center;padding:20px}
+  .pm-box{background:#fff;border-radius:12px;padding:26px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
 </style>
 </head>
 <!-- GENERATED FROM operations.html by src/genworkers.py - DO NOT EDIT BY HAND -->
 <body data-role="prod">
+<div id="loginScreen" onclick="activateReader()">
+  <div class="login-box">
+    <img src="images/logo-stacked.png" alt="Kalinga Naturals" class="login-logo" onerror="this.style.display='none'">
+    <div class="login-clock" id="loginClock">--:--</div>
+    <div class="login-date" id="loginDate"></div>
+    <div class="login-prompt" id="loginPrompt">Tap the screen, then scan your card to start</div>
+    <button class="login-manual" id="loginManual" onclick="event.stopPropagation();manualSignIn()">No card? Sign in manually</button>
+  </div>
+</div>
+<div id="punchModal" class="pm" style="display:none">
+  <div class="pm-box">
+    <h3 style="margin-bottom:6px">Punch out</h3>
+    <p class="muted" id="punchWho"></p>
+    <p style="margin-top:8px">Scan your card to punch out.</p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+      <button class="btn gold" onclick="confirmPunchOut()">Confirm punch out</button>
+      <button class="btn ghost" onclick="closePunch()">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <div class="topbar">
   <div class="brand"><span class="dot"></span>
     <div>Kalinga Naturals<small>WORKERS</small></div>
   </div>
   <input id="fxRate" type="hidden" value="42">
-  <div class="role-switch no-print"><span class="muted" style="font-size:13px">Production view</span></div>
+  <div class="role-switch no-print"><span id="activeWorker" style="font-size:13px;color:var(--ok);font-weight:700"></span> <button class="btn sm ghost" onclick="openPunch()">Punch out</button></div>
 </div>
 
 <div class="tabs no-print" id="tabs"></div>
@@ -298,6 +329,8 @@ let STATE = {
   deliveries:[],  // {id, ingredient, grams, phpCost, date}
   shipDates:{},   // {orderId: 'YYYY-MM-DD'} ship-by dates (synced via production state)
   stock:{},       // {productKey: finished bars on hand} (synced)
+  workers:{},     // {cardId: name} NFC punch cards (synced)
+  shifts:[],      // [{id,cardId,name,in,out,mins}] punch records (synced)
 };
 
 let CURRENT_TAB = 'dash';
@@ -761,6 +794,8 @@ async function loadState(){
     }));
   }
   if(!STATE.stock) STATE.stock={};
+  if(!STATE.workers) STATE.workers={};
+  if(!STATE.shifts) STATE.shifts=[];
   PROD_KEYS.forEach(pk=>{ if(STATE.stock[pk]===undefined) STATE.stock[pk]=0; });
 }
 
@@ -804,12 +839,12 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, shifts:STATE.shifts}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','shifts'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
@@ -892,6 +927,68 @@ function startBackendSync(){
   _syncedSnap = snapshot();
   pollBackend(); pullState();
   setInterval(()=>{ pollBackend(); pullState(); }, POLL_MS);
+}
+
+/* ---- worker login / punch clock (Web NFC on Android; manual fallback) ---- */
+let ACTIVE=null, nfcReader=null, nfcActive=false;
+function tickClock(){
+  const d=new Date();
+  const c=document.getElementById('loginClock'); if(c) c.textContent=d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit'});
+  const dt=document.getElementById('loginDate'); if(dt) dt.textContent=d.toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+}
+setInterval(tickClock,1000); tickClock();
+async function activateReader(){
+  if(ACTIVE) return;
+  if(nfcActive){ return; }
+  if(!('NDEFReader' in window)){ const p=document.getElementById('loginPrompt'); if(p) p.textContent='No NFC on this device — use “Sign in manually”.'; return; }
+  try{
+    nfcReader=new NDEFReader(); await nfcReader.scan(); nfcActive=true;
+    nfcReader.onreading=(e)=>handleCard(e.serialNumber||('id-'+Date.now()));
+    const p=document.getElementById('loginPrompt'); if(p) p.textContent='Reader active — scan your card to start';
+  }catch(err){ const p=document.getElementById('loginPrompt'); if(p) p.textContent='Could not start the card reader — tap to retry.'; }
+}
+function handleCard(cardId){
+  if(!cardId) return;
+  if(ACTIVE){
+    const pm=document.getElementById('punchModal');
+    if(pm && pm.style.display!=='none') confirmPunchOut();
+    return;
+  }
+  let name=(STATE.workers||{})[cardId];
+  if(!name){
+    name=prompt('New card. Enter the worker\'s name:');
+    if(!name||!name.trim()) return;
+    STATE.workers=STATE.workers||{}; STATE.workers[cardId]=name.trim(); saveState();
+  }
+  punchIn(cardId,name);
+}
+function punchIn(cardId,name){
+  STATE.shifts=STATE.shifts||[];
+  const sh={id:uid(),cardId,name,in:new Date().toISOString(),out:null,mins:0};
+  STATE.shifts.push(sh);
+  ACTIVE={cardId,name,shiftId:sh.id};
+  document.body.classList.add('in');
+  const w=document.getElementById('activeWorker'); if(w) w.textContent='● '+name;
+  saveState(); renderTabs(); switchTab(START_TAB);
+  toast('Welcome, '+name);
+}
+function openPunch(){ if(!ACTIVE) return; const w=document.getElementById('punchWho'); if(w) w.textContent=ACTIVE.name+' — scan your card or confirm'; document.getElementById('punchModal').style.display='flex'; }
+function closePunch(){ document.getElementById('punchModal').style.display='none'; }
+function confirmPunchOut(){
+  if(!ACTIVE){ closePunch(); return; }
+  const sh=(STATE.shifts||[]).find(x=>x.id===ACTIVE.shiftId);
+  if(sh){ sh.out=new Date().toISOString(); sh.mins=Math.max(0,Math.round((new Date(sh.out)-new Date(sh.in))/60000)); }
+  saveState();
+  ACTIVE=null; const w=document.getElementById('activeWorker'); if(w) w.textContent='';
+  closePunch(); document.body.classList.remove('in'); toast('Punched out');
+}
+function manualSignIn(){
+  const known=Object.values(STATE.workers||{});
+  let name=prompt('Sign in — enter your name'+(known.length?' ('+known.slice(0,4).join(', ')+')':'')+':');
+  if(!name||!name.trim()) return; name=name.trim();
+  let cardId=Object.keys(STATE.workers||{}).find(k=>STATE.workers[k].toLowerCase()===name.toLowerCase());
+  if(!cardId){ cardId='manual-'+name.toLowerCase().replace(/\s+/g,''); STATE.workers=STATE.workers||{}; STATE.workers[cardId]=name; }
+  punchIn(cardId,name);
 }
 
 (async function init(){
