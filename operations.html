@@ -628,7 +628,6 @@ function renderCuring(){
       ${curing.length?`<table><thead><tr><th>Rack</th><th>Batch</th><th>Cure</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Nothing curing right now.</div>`}
     </div>`;
 }
-function neededBatches(){ return STATE.batches.filter(b=>b.status==='make'); }
 function renderMake(){
   // aggregate make demand by product
   const agg={};
@@ -742,52 +741,6 @@ function renderProd(){
     <div class="page-head"><div><h2>Production</h2><p>What the workshop needs to make, in priority order (each batch is ${BATCH_SIZE} bars). The team makes these on the tablet.</p></div></div>
     ${cards}`;
 }
-function pickProd(pk){PRODUCTION_FOCUS=pk;renderProd();}
-function loadTimer(stepIndex,secs){
-  TIMER.remain=secs;TIMER.stepIndex=stepIndex;TIMER.product=PRODUCTION_FOCUS;
-  if(TIMER.int){clearInterval(TIMER.int);TIMER.int=null;}
-  $('#timerStep').textContent='Step '+(stepIndex+1);
-  $('#timerStart').textContent='Start step timer';
-  updateTimerDisplay();
-}
-function timerToggle(){
-  if(TIMER.int){clearInterval(TIMER.int);TIMER.int=null;$('#timerStart').textContent='Resume';return;}
-  if(TIMER.remain<=0){toast('Pick a step timer first');return;}
-  $('#timerStart').textContent='Pause';
-  TIMER.int=setInterval(()=>{
-    TIMER.remain--;updateTimerDisplay();
-    if(TIMER.remain<=0){clearInterval(TIMER.int);TIMER.int=null;
-      $('#timerStart').textContent='Start step timer';
-      try{new AudioContext();}catch(e){}
-      toast('⏱ Step timer done!');
-      $('#timerBox').style.background='var(--ok)';
-      setTimeout(()=>$('#timerBox').style.background='',1500);
-    }
-  },1000);
-}
-function timerReset(){if(TIMER.int)clearInterval(TIMER.int);TIMER.int=null;TIMER.remain=0;
-  TIMER.stepIndex=-1;$('#timerStep').textContent='Ready';$('#timerStart').textContent='Start step timer';updateTimerDisplay();}
-function updateTimerDisplay(){
-  const el=$('#timerTime');if(!el)return;
-  const m=Math.floor(TIMER.remain/60),s=TIMER.remain%60;
-  el.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-}
-function logProduction(pk){
-  const qty=parseInt($('#madeQty').value)||0;
-  const by=$('#madeBy').value.trim();
-  const min=parseInt($('#madeMin').value)||0;
-  if(qty<1){toast('Enter quantity made');return;}
-  // deduct inventory
-  PRODUCTS[pk].ingredients.forEach(i=>{
-    STATE.inventory[i.key]=Math.max(0,(STATE.inventory[i.key]||0)-i.grams*qty);
-  });
-  // move matching 'make' batches to 'cure', or create a stock batch
-  const makeB=STATE.batches.filter(b=>b.status==='make'&&b.product===pk);
-  if(makeB.length){ makeB.forEach(b=>{b.status='cure';b.curedAt=today();b.madeBy=by;b.minutes=min;}); }
-  else { STATE.batches.push({id:uid(),product:pk,qty,status:'cure',orderId:null,
-    started:today(),curedAt:today(),madeBy:by,minutes:min,created:today()}); }
-  saveState();toast(`${qty} bars logged — now curing`);renderProd();renderTabs();
-}
 
 /* ============================================================
    INVENTORY
@@ -845,13 +798,6 @@ function addDelivery(){
   STATE.inventory[k]=(STATE.inventory[k]||0)+g;
   STATE.deliveries.push({id:uid(),ingredient:k,grams:g,phpCost:cost,date:today()});
   saveState();toast('Stock added');renderInv();renderTabs();
-}
-function quickAdd(k){
-  const g=parseInt(prompt('Grams to add to stock?','1000'));
-  if(!g||g<=0)return;
-  STATE.inventory[k]=(STATE.inventory[k]||0)+g;
-  STATE.deliveries.push({id:uid(),ingredient:k,grams:g,phpCost:0,date:today()});
-  saveState();renderInv();renderTabs();
 }
 
 /* ============================================================
@@ -1137,30 +1083,6 @@ async function pullState(){
   if(changed){ cacheLocal(); rerenderCurrent(); }
 }
 
-function showConflict(areas, sv){
-  _conflictCtx={areas:areas.slice(), sv:sv};
-  const names={batches:'Production batches',inventory:'Inventory stock',deliveries:'Deliveries',ingredientCosts:'Ingredient costs',shipDates:'Delivery dates'};
-  const li=areas.map(a=>`<li>${names[a]||a}</li>`).join('');
-  const mEl=$('#conflictModal'); if(!mEl) return;
-  mEl.innerHTML=`<div class="cbox"><h3 style="margin-top:0">Sync conflict</h3>
-    <p class="muted">These changed here <b>and</b> on another device since the last sync:</p>
-    <ul style="margin:8px 0 8px 18px">${li}</ul>
-    <p class="muted">Choose which to keep — nothing is overwritten until you pick.</p>
-    <div style="display:flex;gap:10px;margin-top:14px">
-      <button class="btn gold" onclick="resolveConflict('mine')">Keep mine</button>
-      <button class="btn teal" onclick="resolveConflict('theirs')">Use other device</button></div></div>`;
-  mEl.style.display='flex';
-}
-function resolveConflict(choice){
-  const ctx=_conflictCtx; if(!ctx) return;
-  ctx.areas.forEach(a=>{
-    const theirs = ctx.sv && ctx.sv[a]!==undefined ? ctx.sv[a] : undefined;
-    if(choice==='theirs' && theirs!==undefined){ STATE[a]=theirs; }
-    _syncedSnap[a]=JSON.stringify(theirs!==undefined?theirs:STATE[a]);
-  });
-  _conflictCtx=null; const mEl=$('#conflictModal'); if(mEl) mEl.style.display='none';
-  cacheLocal(); rerenderCurrent(); pushState();
-}
 
 function startBackendSync(){
   if(!BACKEND_URL) return;
@@ -1562,13 +1484,6 @@ function setSupItem(sid,key,which,val){
   if(which==='pack'){ if(n>0) it.packSize=n; } else { if(n>=0) it.minOrder=n; }
   saveState(); if(typeof pushState==='function')pushState();
 }
-function addSupplier(){
-  const g=id=>{const e=$('#'+id);return e?e.value.trim():'';};
-  const name=g('sup_name'); if(!name){ toast('Enter a supplier name'); return; }
-  STATE.suppliers=STATE.suppliers||[];
-  STATE.suppliers.push({id:uid(), name, phone:g('sup_phone'), email:g('sup_email'), address:g('sup_addr'), account:g('sup_acct'), note:g('sup_note'), items:[]});
-  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(name+' added');
-}
 function editSupplier(id){ openSupplierForm(id); }
 function deleteSupplier(id){
   const s=supplierById(id); if(!s) return;
@@ -1587,13 +1502,6 @@ function addSupItem(sid){
   const u=((($('#si-uom-'+sid)||{}).value)||'').trim(); if(u){ STATE.uom=STATE.uom||{}; STATE.uom[key]=u; }
   s.items.push({key, packSize:pack, minOrder:min});
   saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(supplyName(key)+' added');
-}
-function editSupItem(sid,key){
-  const s=supplierById(sid); if(!s) return;
-  const it=(s.items||[]).find(i=>i.key===key); if(!it) return;
-  const pack=prompt('Pack size (orders round up to this increment):', it.packSize||1); if(pack!==null && parseInt(pack)>0) it.packSize=parseInt(pack);
-  const min=prompt('Minimum order quantity:', it.minOrder||0); if(min!==null && parseInt(min)>=0) it.minOrder=parseInt(min);
-  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
 }
 function removeSupItem(sid,key){
   const s=supplierById(sid); if(!s) return;

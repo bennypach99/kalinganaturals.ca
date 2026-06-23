@@ -435,17 +435,11 @@ const daysSince = d=>Math.floor((Date.now()-new Date(d).getTime())/86400000);
    DASHBOARD (owner)
    ============================================================ */
 function renderDash(){ /* owner-only; removed from workers page */ }
-function emptyMini(t){return `<div class="empty"><div class="big">◇</div>${t}</div>`;}
 
 /* ============================================================
    ORDERS
    ============================================================ */
 const BATCH_SIZE=60, RESTOCK_BELOW=15;
-function createStockBatch(pk){
-  STATE.batches.push({id:uid(),num:batchNum(),product:pk,qty:BATCH_SIZE,status:'make',orderId:null,
-    started:null,curedAt:null,madeBy:'',minutes:0,created:today()});
-  saveState();toast('Batch added to make list');renderOrders();renderTabs();
-}
 function renderOrders(){
   const open=STATE.orders.filter(o=>o.status!=='shipped');
   const assigned={};
@@ -470,132 +464,11 @@ function renderOrders(){
         :`<div class="empty"><div class="big">◇</div>No orders received yet.</div>`}
     </div>`;
 }
-function addOrder(){
-  const gv=id=>{const e=$('#'+id);return e?e.value.trim():'';};
-  const customer=(gv('ord_first')+' '+gv('ord_last')).trim();
-  if(!customer){toast('Enter a customer name');return;}
-  const items={};let any=false;
-  PROD_KEYS.forEach(pk=>{const q=parseInt($('#ord_'+pk).value)||0;if(q>0){items[pk]=q;any=true;}});
-  if(!any){toast('Add at least one product');return;}
-  const lines=[gv('ord_street'),gv('ord_line2'),gv('ord_city'),(gv('ord_prov')+' '+gv('ord_postal')).trim(),gv('ord_country')].filter(Boolean);
-  if(gv('ord_phone')) lines.push('Tel: '+gv('ord_phone'));
-  const order={id:'web-'+uid(),customer,email:gv('ord_email'),phone:gv('ord_phone'),
-    address:lines.join(', '),items,status:'new',created:today(),shipped:null,agreedTotal:gv('ord_agreed')||null};
-  STATE.orders.push(order);
-  if(gv('ord_shipby')){STATE.shipDates=STATE.shipDates||{};STATE.shipDates[order.id]=gv('ord_shipby');}
-  pushOrderToBackend(order);   // manual/phone/market orders persist to the DB too
-  saveState();toast('Order added');renderOrders();renderTabs();
-}
-function setShipDate(id){
-  STATE.shipDates=STATE.shipDates||{};
-  const cur=STATE.shipDates[id]||'';
-  const d=prompt('Ship-by date (YYYY-MM-DD), leave blank to clear:', cur);
-  if(d===null) return;
-  if(d.trim()===''){ delete STATE.shipDates[id]; } else { STATE.shipDates[id]=d.trim(); }
-  saveState(); renderOrders(); renderTabs();
-}
-function queueOrder(id){
-  const o=STATE.orders.find(x=>x.id===id);if(!o)return;
-  o.status='make';
-  patchOrderOnBackend(id,{status:'make'});   // keep server in sync
-  // create/merge batches per product
-  Object.entries(o.items).forEach(([pk,q])=>{
-    STATE.batches.push({id:uid(),num:batchNum(),product:pk,qty:q,status:'make',orderId:id,
-      started:null,curedAt:null,madeBy:'',minutes:0,created:today()});
-  });
-  saveState();toast('Queued to make list');renderOrders();renderTabs();
-}
-function delOrder(id){
-  if(!confirm('Delete this order?'))return;
-  STATE.orders=STATE.orders.filter(o=>o.id!==id);
-  STATE.batches=STATE.batches.filter(b=>b.orderId!==id);
-  const s=loadSync(); if(s.deleted.indexOf(id)===-1){s.deleted.push(id);saveSync(s);}
-  saveState();renderOrders();renderTabs();
-}
 
 /* ============================================================
    MAKE LIST  (aggregated demand)
    ============================================================ */
-function neededBatches(){ return STATE.batches.filter(b=>b.status==='make'); }
-function renderMake(){
-  // aggregate make demand by product
-  const agg={};
-  STATE.batches.filter(b=>b.status==='make').forEach(b=>{agg[b.product]=(agg[b.product]||0)+b.qty;});
-  const curing=STATE.batches.filter(b=>b.status==='cure');
-  // total grams of each ingredient reserved by everything currently queued to make
-  const reservedAll={};
-  STATE.batches.filter(b=>b.status==='make').forEach(b=>{
-    PRODUCTS[b.product].ingredients.forEach(i=>{reservedAll[i.key]=(reservedAll[i.key]||0)+i.grams*b.qty;});
-  });
-  const cards=Object.entries(agg).map(([pk,qty])=>{
-    // requirements; availability = on-hand minus what OTHER queued batches reserved
-    const reqs=PRODUCTS[pk].ingredients.map(i=>{
-      const need=i.grams*qty, have=STATE.inventory[i.key]||0, avail=have-((reservedAll[i.key]||0)-need);
-      return {name:i.name,need,have,avail,short:avail<need};
-    });
-    const canMake=reqs.every(r=>!r.short);
-    return `<div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div><h3 style="margin-bottom:2px">${PRODUCTS[pk].name}</h3>
-          <div class="muted">${qty} bars to make · cure ${PRODUCTS[pk].cure} days</div></div>
-        <span class="pill make">${qty}</span>
-      </div>
-      <div class="divider"></div>
-      <table><thead><tr><th>Ingredient</th><th class="right">Need</th><th class="right">Have</th><th class="right">Avail</th></tr></thead>
-        <tbody>${reqs.map(r=>`<tr><td>${r.name}</td><td class="right">${r.need} g</td>
-          <td class="right">${r.have} g</td><td class="right ${r.short?'low':''}">${r.avail} g${r.short?' ⚠':''}</td></tr>`).join('')}</tbody></table>
-      ${canMake?'':`<p class="muted" style="color:var(--bad);margin-top:8px">Not enough stock — log a delivery in Inventory.</p>`}
-      <button class="btn teal" style="margin-top:12px" onclick="startMaking('${pk}')">Start making → Production</button>
-    </div>`;
-  }).join('');
-
-  $('#view-make').innerHTML=`
-    <div class="page-head"><div>
-      <h2>Make List</h2><p>Everything queued from orders, grouped by product. Check stock, then start making.</p>
-    </div></div>
-    ${Object.keys(agg).length?`<div class="grid g2">${cards}</div>`:
-      `<div class="card"><div class="empty"><div class="big">◇</div>Nothing queued. Queue orders from the Orders tab.</div></div>`}
-    ${curing.length?`<div class="card"><h3>Curing now (${curing.length} batches)</h3>
-      <table><thead><tr><th>Product</th><th class="right">Qty</th><th>Started</th><th>Cure progress</th><th class="no-print"></th></tr></thead>
-      <tbody>${curing.map(b=>{
-        const d=daysSince(b.curedAt||b.started||b.created),total=PRODUCTS[b.product].cure;
-        const pct=Math.min(100,Math.round(d/total*100)),done=d>=total;
-        return `<tr><td>${PRODUCTS[b.product].name}</td><td class="right">${b.qty}</td>
-          <td>${b.curedAt||'—'}</td>
-          <td><div style="background:var(--cream-d);border-radius:6px;height:8px;width:120px;overflow:hidden">
-            <div style="background:${done?'var(--ok)':'var(--teal)'};height:100%;width:${pct}%"></div></div>
-            <span class="muted">${d}/${total} days</span></td>
-          <td class="no-print"><button class="btn sm ghost" onclick="backToMake('${b.id}')">← Back</button>${done?`<button class="btn sm gold" onclick="markReady('${b.id}')">Mark ready</button>`:''}</td></tr>`;
-      }).join('')}</tbody></table></div>`:''}
-    ${(function(){const ready=STATE.batches.filter(b=>b.status==='ready');return ready.length?`<div class="card"><h3>Ready to ship (${ready.length} batches)</h3><table><thead><tr><th>Product</th><th class="right">Qty</th><th>Made by</th><th class="no-print"></th></tr></thead><tbody>${ready.map(b=>`<tr><td>${PRODUCTS[b.product].name}</td><td class="right">${b.qty}</td><td>${b.madeBy||'—'}</td><td class="no-print"><button class="btn sm ghost" onclick="backReady('${b.id}')">← Back to cure</button></td></tr>`).join('')}</tbody></table></div>`:'';})()}`;
-}
-function startMaking(pk){ PRODUCTION_FOCUS=pk; switchTab('prod'); }
 // ---- Back (reverse a stage). Rule: Back = previous stage, Delete = gone for good. ----
-function backOrder(id){
-  const o=STATE.orders.find(x=>x.id===id);if(!o)return;
-  if(!confirm('Move this order back to New? Its queued batches will be removed.'))return;
-  o.status='new';
-  patchOrderOnBackend(id,{status:'new'});
-  STATE.batches=STATE.batches.filter(b=>b.orderId!==id);
-  saveState();toast('Moved back to New');renderOrders();renderTabs();
-}
-function backToMake(id){
-  const b=STATE.batches.find(x=>x.id===id);if(!b)return;
-  b.status='make';b.curedAt=null;
-  saveState();toast('Back to make list');renderProd();renderTabs();
-}
-function backReady(id){
-  const b=STATE.batches.find(x=>x.id===id);if(!b)return;
-  b.status='cure';if(!b.curedAt)b.curedAt=today();
-  saveState();toast('Back to curing');renderProd();renderTabs();
-}
-function unshipOrder(id){
-  const o=STATE.orders.find(x=>x.id===id);if(!o)return;
-  o.status='make';o.shipped=null;
-  patchOrderOnBackend(id,{status:'make',shipped:null});
-  STATE.batches.filter(b=>b.orderId===id&&b.status==='shipped').forEach(b=>b.status='ready');
-  saveState();toast('Un-shipped — back to production');renderShip();renderTabs();
-}
 function curingDone(b){ return daysSince(b.curedAt||b.started||b.created)>=PRODUCTS[b.product].cure; }
 function markAllReady(){
   const due=STATE.batches.filter(b=>b.status==='cure' && curingDone(b));
@@ -698,7 +571,6 @@ function computeNeed(){
   return per;
 }
 function totalBatchesNeeded(){ const p=computeNeed(); return PROD_KEYS.reduce((s,pk)=>s+p[pk].batches,0); }
-function startMakeFromCard(pk){ const sel=document.getElementById('mk-'+pk); let n=sel?parseInt(sel.value)||1:1; startWizard(pk, Math.max(1,Math.min(REC_MAX_BATCHES,n))); }
 function renderProd(){
   if(WIZARD){ renderWizard(); return; }
   const need=computeNeed();
@@ -761,52 +633,6 @@ function renderWizard(){
       <button class="btn ghost sm no-print" style="margin-top:14px" onclick="wizCancel()">Cancel make</button>
     </div>`;
   wizTick();
-}
-function pickProd(pk){PRODUCTION_FOCUS=pk;renderProd();}
-function loadTimer(stepIndex,secs){
-  TIMER.remain=secs;TIMER.stepIndex=stepIndex;TIMER.product=PRODUCTION_FOCUS;
-  if(TIMER.int){clearInterval(TIMER.int);TIMER.int=null;}
-  $('#timerStep').textContent='Step '+(stepIndex+1);
-  $('#timerStart').textContent='Start step timer';
-  updateTimerDisplay();
-}
-function timerToggle(){
-  if(TIMER.int){clearInterval(TIMER.int);TIMER.int=null;$('#timerStart').textContent='Resume';return;}
-  if(TIMER.remain<=0){toast('Pick a step timer first');return;}
-  $('#timerStart').textContent='Pause';
-  TIMER.int=setInterval(()=>{
-    TIMER.remain--;updateTimerDisplay();
-    if(TIMER.remain<=0){clearInterval(TIMER.int);TIMER.int=null;
-      $('#timerStart').textContent='Start step timer';
-      try{new AudioContext();}catch(e){}
-      toast('⏱ Step timer done!');
-      $('#timerBox').style.background='var(--ok)';
-      setTimeout(()=>$('#timerBox').style.background='',1500);
-    }
-  },1000);
-}
-function timerReset(){if(TIMER.int)clearInterval(TIMER.int);TIMER.int=null;TIMER.remain=0;
-  TIMER.stepIndex=-1;$('#timerStep').textContent='Ready';$('#timerStart').textContent='Start step timer';updateTimerDisplay();}
-function updateTimerDisplay(){
-  const el=$('#timerTime');if(!el)return;
-  const m=Math.floor(TIMER.remain/60),s=TIMER.remain%60;
-  el.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-}
-function logProduction(pk){
-  const qty=parseInt($('#madeQty').value)||0;
-  const by=$('#madeBy').value.trim();
-  const min=parseInt($('#madeMin').value)||0;
-  if(qty<1){toast('Enter quantity made');return;}
-  // deduct inventory
-  PRODUCTS[pk].ingredients.forEach(i=>{
-    STATE.inventory[i.key]=Math.max(0,(STATE.inventory[i.key]||0)-i.grams*qty);
-  });
-  // move matching 'make' batches to 'cure', or create a stock batch
-  const makeB=STATE.batches.filter(b=>b.status==='make'&&b.product===pk);
-  if(makeB.length){ makeB.forEach(b=>{b.status='cure';b.curedAt=today();b.madeBy=by;b.minutes=min;}); }
-  else { STATE.batches.push({id:uid(),num:batchNum(),product:pk,qty,status:'cure',orderId:null,
-    started:today(),curedAt:today(),madeBy:by,minutes:min,created:today()}); }
-  saveState();toast(`${qty} bars logged — now curing`);renderProd();renderTabs();
 }
 
 /* ============================================================
@@ -927,19 +753,10 @@ function addDelivery(){
   STATE.deliveries.push({id:uid(),ingredient:k,grams:g,phpCost:cost,date:today()});
   saveState();toast('Stock added');renderInv();renderTabs();
 }
-function quickAdd(k){
-  const g=parseInt(prompt('Grams to add to stock?','1000'));
-  if(!g||g<=0)return;
-  STATE.inventory[k]=(STATE.inventory[k]||0)+g;
-  STATE.deliveries.push({id:uid(),ingredient:k,grams:g,phpCost:0,date:today()});
-  saveState();renderInv();renderTabs();
-}
 
 /* ============================================================
    SHIPMENTS
    ============================================================ */
-function orderRef(o){ return '#'+String(o.id).slice(-5).toUpperCase(); }
-function stockReady(o){ return Object.entries(o.items).every(([k,q])=>((STATE.stock&&STATE.stock[k])||0)>=q); }
 let PACK=null, PACK_TICK=null;
 const PACK_STEPS=[
   "Pull the bars listed above from the curing racks.",
@@ -949,48 +766,6 @@ const PACK_STEPS=[
   "Weigh and seal the box.",
   "Set the box aside for pickup / hand to the courier."
 ];
-function startPack(orderId){
-  const o=STATE.orders.find(x=>x.id===orderId); if(!o) return;
-  PACK={orderId, startedAt:Date.now(), step:0};
-  if(PACK_TICK) clearInterval(PACK_TICK); PACK_TICK=setInterval(packTick,1000);
-  renderShip();
-}
-function packTick(){ if(!PACK) return; const el=document.getElementById('packTotal'); if(el) el.textContent=mmss(Date.now()-PACK.startedAt); }
-function packDone(){
-  if(!PACK) return;
-  if(PACK.step<PACK_STEPS.length-1){ PACK.step++; renderShip(); }
-  else { finishPack(); }
-}
-function packBack(){ if(!PACK) return; if(PACK.step>0){ PACK.step--; renderShip(); } }
-function packCancel(){ if(!confirm('Cancel packing? Time so far is discarded.')) return; if(PACK_TICK) clearInterval(PACK_TICK); PACK_TICK=null; PACK=null; renderShip(); }
-function finishPack(){
-  const id=PACK.orderId, mins=Math.round((Date.now()-PACK.startedAt)/60000);
-  const o=STATE.orders.find(x=>x.id===id); if(o) o.packMin=mins;
-  if(PACK_TICK) clearInterval(PACK_TICK); PACK_TICK=null; PACK=null;
-  shipOrder(id); toast('Packed & shipped — '+mins+' min');
-}
-function renderPackWizard(){
-  const o=STATE.orders.find(x=>x.id===PACK.orderId);
-  if(!o){ PACK=null; renderShip(); return; }
-  const items=Object.entries(o.items).map(([k,q])=>`${q}× ${PRODUCTS[k].name.replace(' Bar','')}`).join(', ');
-  const step=PACK_STEPS[PACK.step], isLast=PACK.step===PACK_STEPS.length-1, isPrint=PACK.step===3;
-  $('#view-ship').innerHTML=`
-    <div class="page-head"><div><h2>Packing ${orderRef(o)}</h2><p>${items} · ${orderBars(o)} bars</p></div></div>
-    <div class="card" style="text-align:center">
-      <div class="muted" style="font-size:13px;text-transform:uppercase;letter-spacing:1px">Step ${PACK.step+1} of ${PACK_STEPS.length}</div>
-      <div style="font-size:22px;font-weight:600;color:var(--navy);margin:14px auto;max-width:620px;line-height:1.45">${step}</div>
-      ${isPrint?`<button class="btn teal" onclick="printSlip('${o.id}')">🖨 Print shipping label</button>`:''}
-      <div style="margin:18px 0"><div class="muted" style="font-size:11px;text-transform:uppercase">Pack time</div><div id="packTotal" style="font-family:Georgia,serif;font-size:42px;color:var(--navy);font-weight:700">00:00</div></div>
-      <p class="muted" style="font-size:11px">Timer runs automatically — it can't be paused or edited.</p>
-      <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
-        <button class="btn ghost" onclick="packBack()" ${PACK.step===0?'disabled':''}>← Back</button>
-        <button class="btn gold" style="min-width:170px" onclick="packDone()">${isLast?'Finish — mark shipped':'Done — next step'}</button>
-      </div>
-      <button class="btn ghost sm no-print" style="margin-top:14px" onclick="packCancel()">Cancel</button>
-    </div>
-    <div class="view" id="slip"></div>`;
-  packTick();
-}
 const BOX_CAP=150;
 function producedMap(){
   // available finished bars: box being filled (PH) + boxes still in transit + Canada stock on hand.
@@ -1058,35 +833,6 @@ function renderShip(){
       ${log.length?`<table><thead><tr><th>Date</th><th class="right">Bars</th></tr></thead><tbody>${lrows}</tbody></table>`:`<p class="muted">None shipped yet.</p>`}
     </div>
     <div class="view" id="slip"></div>`;
-}
-function shipOrder(id){
-  const o=STATE.orders.find(x=>x.id===id);if(!o)return;
-  o.status='shipped';o.shipped=today();
-  patchOrderOnBackend(id,{status:'shipped',shipped:o.shipped});   // keep server in sync
-  STATE.stock=STATE.stock||{}; Object.entries(o.items).forEach(([k,q])=>{ STATE.stock[k]=Math.max(0,(STATE.stock[k]||0)-q); });
-  STATE.batches.filter(b=>b.orderId===id).forEach(b=>b.status='shipped');
-  saveState();toast('Marked shipped — donation counter updated');renderShip();renderTabs();
-}
-function printSlip(id){
-  const o=STATE.orders.find(x=>x.id===id);if(!o)return;
-  const rows=Object.entries(o.items).map(([k,q])=>`<tr><td>${PRODUCTS[k].name}</td><td class="right">${q}</td></tr>`).join('');
-  const slip=$('#slip');
-  slip.classList.add('print-active');
-  slip.innerHTML=`<div class="card" style="max-width:520px;margin:20px auto">
-    <div style="text-align:center;border-bottom:2px solid var(--gold);padding-bottom:12px;margin-bottom:14px">
-      <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:var(--navy)">KALINGA NATURALS</div>
-      <div class="muted">Clean Hands. Kind hearts.</div>
-    </div>
-    <p><strong>Packing slip</strong> · ${today()}</p>
-    <p style="margin:8px 0"><strong>Ship to:</strong><br>${o.customer}<br>${(o.address||'').replace(/,/g,'<br>')}</p>
-    <table style="margin-top:10px"><thead><tr><th>Product</th><th class="right">Qty</th></tr></thead><tbody>${rows}</tbody></table>
-    <p style="margin-top:14px;text-align:center" class="muted">Salamat! Thank you for supporting handcrafted soap and the families who make it.</p>
-    <div class="no-print center" style="margin-top:16px">
-      <button class="btn gold" onclick="window.print()">Print</button>
-      <button class="btn ghost" onclick="closeSlip()">Close</button></div>
-  </div>`;
-  document.querySelectorAll('#view-ship>.card').forEach(c=>c.classList.add('no-print'));
-  window.scrollTo(0,document.body.scrollHeight);
 }
 function closeSlip(){$('#slip').classList.remove('print-active');$('#slip').innerHTML='';
   document.querySelectorAll('#view-ship>.card').forEach(c=>c.classList.remove('no-print'));}
@@ -1290,30 +1036,6 @@ async function pullState(){
   if(changed){ cacheLocal(); rerenderCurrent(); }
 }
 
-function showConflict(areas, sv){
-  _conflictCtx={areas:areas.slice(), sv:sv};
-  const names={batches:'Production batches',inventory:'Inventory stock',deliveries:'Deliveries',ingredientCosts:'Ingredient costs',shipDates:'Delivery dates'};
-  const li=areas.map(a=>`<li>${names[a]||a}</li>`).join('');
-  const mEl=$('#conflictModal'); if(!mEl) return;
-  mEl.innerHTML=`<div class="cbox"><h3 style="margin-top:0">Sync conflict</h3>
-    <p class="muted">These changed here <b>and</b> on another device since the last sync:</p>
-    <ul style="margin:8px 0 8px 18px">${li}</ul>
-    <p class="muted">Choose which to keep — nothing is overwritten until you pick.</p>
-    <div style="display:flex;gap:10px;margin-top:14px">
-      <button class="btn gold" onclick="resolveConflict('mine')">Keep mine</button>
-      <button class="btn teal" onclick="resolveConflict('theirs')">Use other device</button></div></div>`;
-  mEl.style.display='flex';
-}
-function resolveConflict(choice){
-  const ctx=_conflictCtx; if(!ctx) return;
-  ctx.areas.forEach(a=>{
-    const theirs = ctx.sv && ctx.sv[a]!==undefined ? ctx.sv[a] : undefined;
-    if(choice==='theirs' && theirs!==undefined){ STATE[a]=theirs; }
-    _syncedSnap[a]=JSON.stringify(theirs!==undefined?theirs:STATE[a]);
-  });
-  _conflictCtx=null; const mEl=$('#conflictModal'); if(mEl) mEl.style.display='none';
-  cacheLocal(); rerenderCurrent(); pushState();
-}
 
 function startBackendSync(){
   if(!BACKEND_URL) return;
@@ -1406,7 +1128,6 @@ function doSignin(){
   closeSignin(); punchIn(w);
 }
 /* ---- Manage team: manager-controlled roster (name + PIN + linked NFC card) ---- */
-function openRoster(){ renderRoster(); const m=document.getElementById('rosterModal'); if(m) m.style.display='flex'; }
 function closeRoster(){ _regCardFor=null; const m=document.getElementById('rosterModal'); if(m) m.style.display='none'; }
 function renderRoster(){
   const m=document.getElementById('rosterModal'); if(!m) return;
@@ -1714,13 +1435,6 @@ function setSupItem(sid,key,which,val){
   if(which==='pack'){ if(n>0) it.packSize=n; } else { if(n>=0) it.minOrder=n; }
   saveState(); if(typeof pushState==='function')pushState();
 }
-function addSupplier(){
-  const g=id=>{const e=$('#'+id);return e?e.value.trim():'';};
-  const name=g('sup_name'); if(!name){ toast('Enter a supplier name'); return; }
-  STATE.suppliers=STATE.suppliers||[];
-  STATE.suppliers.push({id:uid(), name, phone:g('sup_phone'), email:g('sup_email'), address:g('sup_addr'), account:g('sup_acct'), note:g('sup_note'), items:[]});
-  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(name+' added');
-}
 function editSupplier(id){ openSupplierForm(id); }
 function deleteSupplier(id){
   const s=supplierById(id); if(!s) return;
@@ -1739,13 +1453,6 @@ function addSupItem(sid){
   const u=((($('#si-uom-'+sid)||{}).value)||'').trim(); if(u){ STATE.uom=STATE.uom||{}; STATE.uom[key]=u; }
   s.items.push({key, packSize:pack, minOrder:min});
   saveState(); if(typeof pushState==='function') pushState(); renderSuppliers(); toast(supplyName(key)+' added');
-}
-function editSupItem(sid,key){
-  const s=supplierById(sid); if(!s) return;
-  const it=(s.items||[]).find(i=>i.key===key); if(!it) return;
-  const pack=prompt('Pack size (orders round up to this increment):', it.packSize||1); if(pack!==null && parseInt(pack)>0) it.packSize=parseInt(pack);
-  const min=prompt('Minimum order quantity:', it.minOrder||0); if(min!==null && parseInt(min)>=0) it.minOrder=parseInt(min);
-  saveState(); if(typeof pushState==='function') pushState(); renderSuppliers();
 }
 function removeSupItem(sid,key){
   const s=supplierById(sid); if(!s) return;
@@ -1769,12 +1476,6 @@ function renderCardLink(){
       <tbody>${rows||'<tr><td colspan="3" class="muted">No workers yet — add them in the office app.</td></tr>'}</tbody></table>`;
 }
 /* ---- manager PIN change + forgot-PIN (email-verified via Google sign-in) ---- */
-function updateMgrPin(){
-  const sel=$('#pin_who'); const id=sel?sel.value:''; const pin=(($('#pin_new')||{}).value||'').trim();
-  const w=(STATE.roster||[]).find(x=>x.id===id); if(!w){ toast('Pick a manager'); return; }
-  if(!/^\d{4,6}$/.test(pin)){ toast('PIN must be 4–6 digits'); return; }
-  w.pin=pin; saveState(); if(typeof pushState==='function')pushState(); renderSettings(); toast(w.name+"'s PIN updated");
-}
 function updateMyPin(){
   if(typeof MGR_USER==='undefined' || !MGR_USER){ toast('No manager signed in'); return; }
   const pin=((($('#pin_new')||{}).value)||'').trim();
@@ -1810,7 +1511,6 @@ function toggleMgr(id){ const w=workerById(id); if(!w) return;
   if(!w.mgr && !/^\d{4,6}$/.test(String(w.pin||''))){ toast('Set a 4–6 digit PIN first (Edit), then make manager'); return; }
   w.mgr=!w.mgr; saveState(); if(typeof pushState==='function') pushState(); renderRoster(); toast(w.name+(w.mgr?' is now a manager':' is no longer a manager')); }
 /* ---- manager sign-in gate ---- */
-function showAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='flex'; initGsi(); }
 function hideAdminGate(){ const g=document.getElementById('adminGate'); if(g) g.style.display='none'; }
 let _gsiTries=0;
 function initGsi(){
@@ -1863,16 +1563,9 @@ function allIngredients(){
   return m;
 }
 // php ingredient cost per bar for a product
-function ingCostPHP(pk){return PRODUCTS[pk].ingredients.reduce((s,i)=>s+i.php,0);}
 // full landed cost per bar in PHP
-function barCostPHP(pk){return ingCostPHP(pk)+LABOUR_PHP_PER_BAR+PACKAGING_PHP_PER_BAR+SHIPPING_PHP_PER_BAR;}
-function barCostCAD(pk){return barCostPHP(pk)/FX;}
-function barProfitCAD(pk){return PRODUCTS[pk].priceCAD - barCostCAD(pk);}
 
 // order totals
-function orderRevenueCAD(o){ if(o&&o.agreedTotal!=null&&o.agreedTotal!==''&&!isNaN(o.agreedTotal)) return Number(o.agreedTotal); return Object.entries(o.items).reduce((s,[k,q])=>s+(PRODUCTS[k].priceCAD*q),0);}
-function orderCostCAD(o){return Object.entries(o.items).reduce((s,[k,q])=>s+(barCostCAD(k)*q),0);}
-function orderBars(o){return Object.values(o.items).reduce((s,q)=>s+q,0);}
 
 function _stageLabel(s){return {make:'To make',cure:'Curing',ready:'Ready'}[s]||s;}
 function _orderCust(b){ const o=STATE.orders.find(x=>x.id===b.orderId); return o?o.customer:'\u2014'; }
@@ -1919,37 +1612,6 @@ function loadBiz(){ try{ return JSON.parse(localStorage.getItem('kalinga:biz'))|
 function saveBiz(){
   const b={name:$('#set_name').value,email:$('#set_email').value,phone:$('#set_phone').value,addr:$('#set_addr').value,tax:$('#set_tax').value};
   try{ localStorage.setItem('kalinga:biz',JSON.stringify(b)); toast('Settings saved'); }catch(e){ toast('Could not save'); }
-}
-function exportData(){
-  const payload={state:STATE,biz:loadBiz(),exported:new Date().toISOString()};
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='kalinga-backup-'+today()+'.json'; document.body.appendChild(a); a.click();
-  a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-}
-function importData(ev){
-  const f=ev.target.files&&ev.target.files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=function(){
-    try{
-      const d=JSON.parse(r.result);
-      const st=d&&d.state?d.state:d;
-      if(!st||typeof st!=='object'||!Array.isArray(st.orders)){ toast('Not a valid backup'); return; }
-      if(!confirm('Replace ALL current data with this backup?')) return;
-      STATE=Object.assign({orders:[],batches:[],inventory:{},ingredientCosts:{},deliveries:[]}, st);
-      if(d&&d.biz){ try{ localStorage.setItem('kalinga:biz',JSON.stringify(d.biz)); }catch(e){} }
-      saveState(); if(typeof pushState==='function') pushState();
-      renderTabs(); switchTab(CURRENT_TAB); toast('Backup imported');
-    }catch(e){ toast('Could not read file'); }
-  };
-  r.readAsText(f);
-}
-function dangerReset(){
-  if(!confirm('Delete ALL orders and production data? Inventory catalog is kept. This cannot be undone.')) return;
-  if(!confirm('Really delete everything? Export a backup first if unsure.')) return;
-  STATE.orders=[]; STATE.batches=[]; STATE.deliveries=[];
-  saveState(); if(typeof pushState==='function') pushState();
-  renderTabs(); switchTab('settings'); toast('All jobs cleared');
 }
 function renderSettings(){
   const b=loadBiz();
@@ -2057,15 +1719,6 @@ const TABS = [
   {id:'restock', label:'Restock', mgr:true},
   {id:'settings', label:'Settings', mgr:true},
 ];
-function setRole(r){
-  ROLE=r; document.body.dataset.role=r;
-  $('#roleOwner').classList.toggle('active',r==='owner');
-  $('#roleProd').classList.toggle('active',r==='prod');
-  renderTabs();
-  // if production role lands on an owner-only tab, bounce to make list
-  if(r==='prod' && CURRENT_TAB==='dash') switchTab('prod');
-  else switchTab(CURRENT_TAB);
-}
 function renderTabs(){
   const openOrders = STATE.orders.filter(o=>o.status!=='shipped').length;
   const prodNeeded = totalBatchesNeeded();
