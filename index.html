@@ -523,9 +523,9 @@
     { key:'moringa',   name:'Moringa & Coconut Milk', tag:'Soap', detail:'Cold Process · 100g', scent:'Creamy · Green · Gentle', price:14, img:'product-moringa.png', shot:'moringa · flat-lay' },
     { key:'charcoal',  name:'Charcoal & Lemongrass Detox', tag:'Soap', detail:'Cold Process · 100g', scent:'Earthy · Smoky · Fresh', price:12, img:'product-charcoal-detox.png', shot:'charcoal · flat-lay' },
     { key:'shampoo',   name:'Ylang-Ylang Shampoo Bar', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Floral · Sweet · Calming', price:16, img:'product-ylang-ylang.png', shot:'ylang-ylang · flat-lay' },
-    { key:'trio',       name:'Bestseller Trio', tag:'Bundle', detail:'3 bars · save $4', scent:'Calamansi · Coconut · Charcoal', price:32, img:'product-trio.png', shot:'3-bar trio', bundle:{calamansi:1,coconut:1,charcoal:1} },
-    { key:'collection', name:'The Full Collection', tag:'Best value', detail:'All 5 bars · save $8', scent:'Every scent in the range', price:58, img:'product-collection.png', shot:'5-bar collection', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1,shampoo:1} },
-    { key:'giftset',    name:'Gift Set', tag:'Gift', detail:'3 bars · giftable box · save $4', scent:'Calamansi · Moringa · Ylang-Ylang', price:39, img:'product-giftset.png', shot:'boxed gift set', bundle:{calamansi:1,moringa:1,shampoo:1}, gift:true }
+    { key:'trio',       name:'Bestseller Trio', tag:'', detail:'3 bars · save $4', scent:'Moringa · Charcoal · Virgin Coconut', price:32, img:'product-trio.png', shot:'3-bar trio', bundle:{moringa:1,charcoal:1,coconut:1} },
+    { key:'collection', name:'The Full Collection', tag:'', detail:'All 5 bars · save $8', scent:'Every scent in the range', price:58, img:'product-collection.png', shot:'5-bar collection', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1,shampoo:1} },
+    { key:'giftset',    name:'Gift Set', tag:'', detail:'3 bars · giftable box', scent:'Virgin Coconut · Charcoal · Moringa', price:34, img:'product-giftset.png', shot:'boxed gift set', bundle:{coconut:1,charcoal:1,moringa:1}, gift:true }
   ];
   var PMAP = {}; PRODUCTS.forEach(function(p){ PMAP[p.key]=p; });
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -534,7 +534,7 @@
     var html = PRODUCTS.map(function(p){
       return '<div class="pcard"><div class="frame">'
         + '<div class="pimg">'
-        +   '<span class="ptag">'+esc(p.tag)+'</span>'
+        +   (p.tag?'<span class="ptag">'+esc(p.tag)+'</span>':'')
         +   '<img src="images/'+p.img+'" alt="'+esc(p.name)+'" onerror="this.remove()" onload="var l=this.parentNode.querySelector(\'.phlabel\');if(l)l.style.display=\'none\'">'
         +   '<span class="phlabel"><span>'+esc(p.shot)+'</span></span>'
         + '</div>'
