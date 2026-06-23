@@ -253,6 +253,16 @@
     nav.main{display:none}
     .sec-head h2,.story-copy h2,.video h2{font-size:30px}
   }
+  .bulkpromo{margin-top:42px;background:var(--navy);color:var(--cream);border-radius:16px;padding:30px 30px;text-align:center}
+  .bulkpromo .bp-title{font-family:Georgia,serif;font-size:25px;color:var(--gold);margin-bottom:6px}
+  .bulkpromo .bp-sub{font-size:13.5px;color:rgba(248,244,238,.8);margin-bottom:18px}
+  .bulkpromo .bp-tiers{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
+  .bulkpromo .bp-tier{background:rgba(255,255,255,.08);border:1px solid rgba(212,168,83,.4);border-radius:11px;padding:14px 20px;font-size:14px;min-width:150px}
+  .bulkpromo .bp-tier.bp-best{border-color:var(--gold);background:rgba(212,168,83,.16)}
+  .bulkpromo .bp-n{display:block;font-family:Georgia,serif;font-size:26px;color:var(--gold);font-weight:700;margin-bottom:2px}
+  .bulkpromo .bp-give{font-size:14px;line-height:1.6;color:rgba(248,244,238,.9);max-width:640px;margin:0 auto}
+  .bulk-bar{background:#fff;border:1px solid var(--gold);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--navy);margin-bottom:10px;line-height:1.45}
+  .give-line{font-size:12.5px;color:var(--teal);margin:6px 0 12px;line-height:1.45}
 </style>
 </head>
 <body>
@@ -332,6 +342,16 @@
         <p>Cold-process bars cured for four weeks, wrapped by the same hands that made them.</p>
       </div>
       <div class="pgrid" id="pgrid"></div>
+      <div class="bulkpromo">
+        <div class="bp-title">Buy more, give more</div>
+        <div class="bp-sub">Mix any bars or sets — the saving applies automatically at checkout.</div>
+        <div class="bp-tiers">
+          <div class="bp-tier"><span class="bp-n">3+</span> bars · save 5%</div>
+          <div class="bp-tier"><span class="bp-n">5+</span> bars · save 10%</div>
+          <div class="bp-tier bp-best"><span class="bp-n">10+</span> bars · save 15% + we gift a bar 🎁</div>
+        </div>
+        <p class="bp-give">For every 10 bars you buy, we donate a full bar of soap to a family in need in the Philippines. <strong>Your purchase helps wash another person's hands, too.</strong></p>
+      </div>
       <div style="text-align:center;margin-top:44px"><a href="#shop" class="btn-outline">View all products</a></div>
     </div>
   </section>
@@ -505,11 +525,10 @@
       </div>
     </div>
     <div class="cart-ft" id="cartFooter">
-      <div class="cart-total">
-        <span class="tl">Total</span>
-        <span class="tv" id="cartTotal">$0</span>
-      </div>
-      <div class="cart-note" id="shipHint" style="margin:-6px 0 12px"></div>
+      <div id="bulkBar" class="bulk-bar"></div>
+      <div id="cartSummary"></div>
+      <div class="cart-note" id="shipHint" style="margin:6px 0 8px"></div>
+      <div id="giveLine" class="give-line"></div>
       <button class="checkout-btn" id="checkoutBtn" onclick="goCheckout()" disabled>Checkout</button>
       <div class="cart-note" id="cartNote">No payment taken here yet — we'll confirm your order and arrange payment.</div>
     </div>
@@ -560,6 +579,9 @@
   }
   function cartCount(){ var n=0; for(var k in CART) n+=CART[k]; return n; }
   function cartTotal(){ var t=0; for(var k in CART) t+=PMAP[k].price*CART[k]; return t; }
+  function barCount(){ var n=0; for(var k in CART){ var p=PMAP[k]; var bars=p.bundle?Object.keys(p.bundle).reduce(function(s,bk){return s+p.bundle[bk];},0):1; n+=bars*CART[k]; } return n; }
+  function bulkTier(){ var b=barCount(); if(b>=10) return {pct:0.15,donate:Math.floor(b/10)}; if(b>=5) return {pct:0.10,donate:0}; if(b>=3) return {pct:0.05,donate:0}; return {pct:0,donate:0}; }
+  function cartFinal(){ var st=cartTotal(); return st-Math.round(st*bulkTier().pct); }
   function updateCartBadge(){ document.getElementById('cartCount').textContent = cartCount(); }
 
   function addToCart(key){
@@ -593,8 +615,22 @@
           + '</div>';
       }).join('');
     }
-    var _st = cartTotal();
-    document.getElementById('cartTotal').textContent = money(_st);
+    var _st = cartTotal(), bars = barCount(), tier = bulkTier();
+    var disc = Math.round(_st * tier.pct), fin = _st - disc;
+    var sum = '<div class="cart-total"><span class="tl">Subtotal</span><span class="tv">'+money(_st)+'</span></div>';
+    if(disc>0) sum += '<div class="cart-total" style="color:var(--teal)"><span class="tl">Bulk savings ('+Math.round(tier.pct*100)+'%)</span><span class="tv">\u2212'+money(disc)+'</span></div>';
+    sum += '<div class="cart-total" style="border-top:1px solid rgba(0,0,0,.12);padding-top:8px;margin-top:4px"><span class="tl">Total</span><span class="tv" id="cartTotal">'+money(fin)+'</span></div>';
+    document.getElementById('cartSummary').innerHTML = sum;
+    var bb = document.getElementById('bulkBar');
+    if(keys.length===0){ bb.innerHTML=''; }
+    else if(bars<3) bb.innerHTML='<strong>Buy more, give more.</strong> Add '+(3-bars)+' more bar'+((3-bars)>1?'s':'')+' to save 5%.';
+    else if(bars<5) bb.innerHTML='<strong>\u2713 5% off!</strong> Add '+(5-bars)+' more bar'+((5-bars)>1?'s':'')+' to save 10%.';
+    else if(bars<10) bb.innerHTML='<strong>\u2713 10% off!</strong> Add '+(10-bars)+' more bar'+((10-bars)>1?'s':'')+' to save 15% and gift a bar to someone in need.';
+    else bb.innerHTML='<strong>\u2713 15% off \u2014 your best deal!</strong>';
+    var give = document.getElementById('giveLine');
+    if(keys.length===0){ give.innerHTML=''; }
+    else if(bars>=10){ give.innerHTML='\ud83c\udf81 Your order gifts <strong>'+tier.donate+' bar'+(tier.donate>1?'s':'')+'</strong> of soap to a family in need \u2014 thank you for sharing.'; }
+    else { give.innerHTML='\ud83d\udc9b Every order supports families in need. Buy 10+ and we gift a bar on your behalf.'; }
     var _sh = document.getElementById('shipHint');
     if(_sh){
       if(keys.length===0){ _sh.textContent=''; }
@@ -673,7 +709,8 @@
       items: items,
       status: 'new',
       created: todayStr(),
-      shipped: null
+      shipped: null,
+      agreedTotal: cartFinal()
     };
 
     // 1) Try shared storage (works when site + ops app share an origin)
