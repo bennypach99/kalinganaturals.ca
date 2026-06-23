@@ -120,6 +120,7 @@
     .wrap { box-shadow:none; border:1px solid #999; page-break-after:always; }
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -185,7 +186,7 @@
           <div class="lot-line" style="font-size:8px;margin-top:5px;font-weight:600;color:var(--navy);font-family:system-ui,sans-serif">Lot No. / N° de lot : <span class="editable" id="lot">KN-________</span></div>
         </div>
         <div class="qr">
-          <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEICAIAAAAslP2oAAAEZElEQVR42u3dwW0bMRBA0SjYLlxKanF1rsWluA76oFMA74HGDGaGeu8cS9q1PmgsQ/Kx1voD/O+vWwDCAGGAMEAYIAwQBggDhAHCAGGAMEAYIAxAGHDv2v2Bt3/vIy7s6/Mj5LruXifq30dd1+7niXLq98GIAcIAYYAwQBggDBAGtHBFvVD28/I7u8/Rs/991P2Jet+q+Y0p3wcjBggDhAHCAGGAMEAY0NqV/QZV8wBRrx8175G9riPq/lS9frfvgxEDhAHCAGGAMEAYIAxo4XILnqbPJ0zZ38mIAcIAYYAwQBiAMEAYsOHl5jF25wHMJxgxAGGAMEAYIAwQBggDyqTPY1Sdk5Ate74iap6k6lyO6d8HIwYIA4QBwgBhgDBAGNBC2DzGlHUI3c6vyD4vouqc7+nrUowYIAwQBggDhAHCAGFAC4+11ktdcLd9oqrmE05dJ2PEAGGAMEAYIAwQBggDjrK9HqPbc/Funyd7H6du545X3Yeo9zVigDBAGCAMEAYIA4QBraWfjzFlPcP0+ZDs8zS6zc8YMUAYIAwQBggDhAHCgJcQtq/U9PUA3a53yv3pto7CiAHCAGGAMEAYIAwQBhzlqnrjquff2ed2n3ofpn8eIwYIA4QBwgBhgDBAGDBS2PkYu6Kec3d7Hh9136afw737e+m2P5gRA4QBwgBhgDBAGCAMaCFsPUbUeoYp5yp0Wz+w+zmrrivq9bN/v0YMEAYIA4QBwgBhgDCghbB5jKp1EdnrHKrOmc6+rm73s9t6FSMGCAOEAcIAYYAwQBjQQvp6jDvZ51Rk738V9Tw+6n2jfi/Z9z97Hsm+UuBPKRAGCAOEAcIAYcBRHmutrR+oek5fNV8RdR+67aNVda559v00YoAwQBggDBAGCAOEAUe5st8g+3lz1bkN0/e56vY62eterMcAf0qBMEAYIAwQBggDRrqq3rjqOfr0dRdV15V9H7qd/23EAGGAMEAYIAwQBggDWgjbVyp736c72edy7JqyL9bu559y/40YIAwQBggDhAHCAGHAUcr2lYp63j/9ufuUc6+jPk/V69tXCvwpBcIAYYAwQBggDBhpez3GdFHzJ1XzIdnzBnemrPcwYoAwQBggDBAGCAOEAUfZXo9R9Rx9V/b53FGq9t3KPp+kap8uIwYIA4QBwgBhgDBAGHCUsH2lqv7f/PR5gOzn/d3OJ4l6nex1HUYMEAYIA4QBwgBhgDCghfTzMbo9788WNe+Rfd+qPs/u6+/+3qO+J0YMEAYIA4QBwgBhgDCghcsteOp27nX2+ejZ7xt136r2+zJigDBAGCAMEAYIA4QBLZjH+KWq87mr9nHKvi4jBggDhAHCAGGAMABhwA/S5zGm7AcVtc6h2/nW2ff/1HUjRgwQBggDhAHCAGGAMKCFx1pr6wem/P/77PO5oz7Prm7zA92u14gBwgBhgDBAGCAMEAYcZXseA4wYIAxAGCAMEAYIA4QBwgBhgDBAGCAMEAYIA4QBL+4bVJ0YCaV0JioAAAAASUVORK5CYII=" alt="QR code to ingredient page">
+          <div id="qrbox" style="display:flex"></div>
           <span>Scan for full ingredients / Ingrédients complets</span>
         </div>
       </div>
@@ -241,7 +242,11 @@ function loadPreset(){
   document.getElementById('desc').textContent=sh?'HANDCRAFTED SHAMPOO BAR · BARRE DE SHAMPOOING':'HANDCRAFTED COLD-PROCESS SOAP · SAVON ARTISANAL';
   const pt=document.getElementById('ptype'); if(pt) pt.textContent=sh?'Shampoo bar / Barre de shampooing':'Soap / Savon';
   document.getElementById('ing').innerHTML=p.ing.replace(/\*Naturally/,'<span class="allergen-note">*Naturally').replace(/oils\.$/,'oils.</span>');
+  const url='https://kalinganaturals.ca/ingredients.html?p='+k;
+  const qb=document.getElementById('qrbox');
+  if(qb && window.QRCode){ qb.innerHTML=''; new QRCode(qb,{text:url, width:92, height:92, correctLevel:QRCode.CorrectLevel.M}); }
 }
+window.addEventListener('load', loadPreset);
 </script>
 </body>
 </html>
