@@ -366,7 +366,7 @@ let STATE = {
   supplies:{},    // {key:{name,qty}} non-ingredient supplies e.g. labels/wrap (synced)
   uom:{},         // {supplyKey: unit of measure} (synced)
   shifts:[],      // punch records (managed in workers app; synced)
-  exportBox:{contents:{},started:''}, exportLog:[], boxStock:0, // export box (workers app; synced)
+  exportBox:{contents:{},started:''}, exportBoxes:[], exportLog:[], boxStock:0, // export box (workers app; synced)
 };
 
 let CURRENT_TAB = 'dash';
@@ -595,7 +595,8 @@ function producedMap(){
   // Received boxes have already been added to STATE.stock, and sold bars have left it, so we
   // count unreceived exportLog + stock (never both) — this excludes bars already sold to customers.
   const m={}, add=o=>Object.entries(o||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q);
-  add((STATE.exportBox&&STATE.exportBox.contents)||{});
+  const _bx=(STATE.exportBoxes&&STATE.exportBoxes.length)?STATE.exportBoxes:[STATE.exportBox||{contents:{}}];
+  _bx.forEach(b=>add(b.contents));
   (STATE.exportLog||[]).forEach(b=>{ if(!b.received) add(b.contents); });
   add(STATE.stock||{});
   return m;
@@ -986,18 +987,18 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies, uom:STATE.uom}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportBoxes:STATE.exportBoxes, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies, uom:STATE.uom}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies','uom'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportBoxes','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies','uom'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
 function snapshot(){ const o={}; SYNC_AREAS.forEach(a=>{ o[a]=JSON.stringify(STATE[a]); }); return o; }
 // ---- timestamped per-record merge (newest record wins; offline edits survive) ----
-const LIST_AREAS = ['batches','shifts','deliveries','exportLog','roster','suppliers','restock','pos'];
+const LIST_AREAS = ['batches','shifts','deliveries','exportLog','exportBoxes','roster','suppliers','restock','pos'];
 function _isObj(x){ return x && typeof x==='object' && !Array.isArray(x); }
 function _eq(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
 function _stripU(r){ if(!_isObj(r)) return r; const o={}; for(const k in r){ if(k!=='_u') o[k]=r[k]; } return o; }

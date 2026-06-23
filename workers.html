@@ -403,7 +403,8 @@ let STATE = {
   deliveries:[],  // {id, ingredient, grams, phpCost, date}
   shipDates:{},   // {orderId: 'YYYY-MM-DD'} ship-by dates (synced via production state)
   stock:{},       // {productKey: finished bars on hand} (legacy)
-  exportBox:{contents:{},started:''}, // current Canada-bound box (synced)
+  exportBox:{contents:{},started:''}, // legacy single box (migrated to exportBoxes)
+  exportBoxes:[],  // queue of export boxes; overflow rolls into the next (synced)
   exportLog:[],   // shipped export boxes (synced)
   boxStock:0,     // empty export boxes on hand (synced)
   workers:{},     // {cardId: name} legacy map (kept for migration)
@@ -473,12 +474,12 @@ function curingDone(b){ return daysSince(b.curedAt||b.started||b.created)>=PRODU
 function markAllReady(){
   const due=STATE.batches.filter(b=>b.status==='cure' && curingDone(b));
   if(!due.length){ toast('Nothing is fully cured yet'); return; }
-  due.forEach(b=>{ b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); });
+  due.forEach(b=>{ b.status='ready'; fillExport(b.product, b.qty||0); });
   saveState(); if(typeof pushState==='function')pushState(); toast(due.length+' batch'+(due.length>1?'es':'')+' marked ready'); rerenderCurrent();
 }
 function markReady(id){
   const b=STATE.batches.find(x=>x.id===id);if(!b)return;
-  b.status='ready'; STATE.exportBox=STATE.exportBox||{contents:{},started:today()}; STATE.exportBox.contents[b.product]=(STATE.exportBox.contents[b.product]||0)+(b.qty||0); saveState(); if(typeof pushState==='function')pushState(); toast('Batch ready — '+(b.qty||0)+' bars to the box'); rerenderCurrent();
+  b.status='ready'; fillExport(b.product, b.qty||0); saveState(); if(typeof pushState==='function')pushState(); toast('Batch ready — '+(b.qty||0)+' bars to the box'); rerenderCurrent();
 }
 
 /* ============================================================
@@ -772,15 +773,27 @@ function producedMap(){
   // Received boxes have already been added to STATE.stock, and sold bars have left it, so we
   // count unreceived exportLog + stock (never both) — this excludes bars already sold to customers.
   const m={}, add=o=>Object.entries(o||{}).forEach(([k,q])=>m[k]=(m[k]||0)+q);
-  add((STATE.exportBox&&STATE.exportBox.contents)||{});
+  const _bx=(STATE.exportBoxes&&STATE.exportBoxes.length)?STATE.exportBoxes:[STATE.exportBox||{contents:{}}];
+  _bx.forEach(b=>add(b.contents));
   (STATE.exportLog||[]).forEach(b=>{ if(!b.received) add(b.contents); });
   add(STATE.stock||{});
   return m;
 }
-function boxTotal(){ const c=(STATE.exportBox&&STATE.exportBox.contents)||{}; return Object.values(c).reduce((s,q)=>s+q,0); }
+function exportBoxesArr(){ if(!Array.isArray(STATE.exportBoxes)) STATE.exportBoxes=[]; if(!STATE.exportBoxes.length) STATE.exportBoxes.push({id:uid(),contents:{},started:today()}); return STATE.exportBoxes; }
+function boxSum(b){ return b?Object.values(b.contents||{}).reduce((s,q)=>s+q,0):0; }
+function fillExport(product, qty){
+  const boxes=exportBoxesArr(); let remaining=qty||0;
+  while(remaining>0){
+    let cur=boxes[boxes.length-1]; let space=BOX_CAP-boxSum(cur);
+    if(space<=0){ cur={id:uid(),contents:{},started:today()}; boxes.push(cur); space=BOX_CAP; }
+    const put=Math.min(space,remaining);
+    cur.contents[product]=(cur.contents[product]||0)+put; remaining-=put;
+  }
+}
+function boxTotal(){ return boxSum(exportBoxesArr()[0]); }
 function addBoxes(){ const n=parseInt(prompt('How many empty export boxes did you receive?','10'))||0; if(n>0){ STATE.boxStock=(STATE.boxStock||0)+n; saveState(); renderShip(); toast(n+' boxes added'); } }
 function printExportLabel(){
-  const box=STATE.exportBox||{contents:{}}; const total=boxTotal();
+  const box=exportBoxesArr()[0]||{contents:{}}; const total=boxTotal();
   const rows=Object.entries(box.contents).filter(([k,q])=>q>0).map(([k,q])=>`<tr><td>${PRODUCTS[k].name}</td><td class="right">${q}</td></tr>`).join('');
   const slip=$('#slip'); slip.classList.add('print-active');
   slip.innerHTML=`<div class="card" style="max-width:520px;margin:20px auto">
@@ -798,16 +811,23 @@ function printExportLabel(){
   window.scrollTo(0,document.body.scrollHeight);
 }
 function shipExportBox(){
-  const total=boxTotal();
+  const boxes=exportBoxesArr(); const box=boxes[0]; const total=boxSum(box);
+  if(total<=0){ toast('Box is empty'); return; }
   if(total<BOX_CAP && !confirm('Box is only '+total+'/'+BOX_CAP+' full. Ship it anyway?')) return;
   STATE.exportLog=STATE.exportLog||[];
-  STATE.exportLog.push({id:uid(), contents:Object.assign({},(STATE.exportBox&&STATE.exportBox.contents)||{}), bars:total, shipped:today()});
-  STATE.exportBox={contents:{}, started:today()};
+  STATE.exportLog.push({id:uid(), contents:Object.assign({},box.contents||{}), bars:total, shipped:today()});
+  boxes.shift();
+  if(!boxes.length) boxes.push({id:uid(),contents:{},started:today()});
   STATE.boxStock=Math.max(0,(STATE.boxStock||0)-1);
-  saveState(); toast('Export box shipped to Canada'); renderShip(); renderTabs();
+  saveState(); if(typeof pushState==='function')pushState(); toast('Export box shipped to Canada'); renderShip(); renderTabs();
 }
 function renderShip(){
-  const box=STATE.exportBox||{contents:{}}; const total=boxTotal(); const full=total>=BOX_CAP;
+  const boxes=exportBoxesArr();
+  const box=boxes[0]||{contents:{}}; const total=boxSum(box); const full=total>=BOX_CAP;
+  const queued=boxes.slice(1);
+  const qcard=queued.length?`<div class="card"><h3>Next boxes filling <span class="muted">(${queued.length})</span></h3>
+      <table><thead><tr><th>Box</th><th class="right">Bars</th></tr></thead><tbody>${queued.map((b,i)=>`<tr><td>Box ${i+2}</td><td class="right">${boxSum(b)} / ${BOX_CAP}</td></tr>`).join('')}</tbody></table>
+      <p class="muted" style="margin-top:6px">Overflow rolls into these. Ship the first box to start on the next.</p></div>`:'';
   const pct=Math.min(100,Math.round(total/BOX_CAP*100));
   const crows=PROD_KEYS.filter(pk=>box.contents[pk]).map(pk=>`<tr><td>${PRODUCTS[pk].name.replace(' Bar','')}</td><td class="right">${box.contents[pk]} bars</td></tr>`).join('');
   const log=(STATE.exportLog||[]).slice().reverse().slice(0,10);
@@ -815,7 +835,7 @@ function renderShip(){
   $('#view-ship').innerHTML=`
     <div class="page-head"><div><h2>Export to Canada</h2><p>Finished bars fill this box. When it reaches ${BOX_CAP} bars, print the box label and ship it. Benny fulfils customer orders in Canada.</p></div></div>
     <div class="card">
-      <h3>Current box <span class="muted">${total} / ${BOX_CAP} bars</span></h3>
+      <h3>Box to ship <span class="muted">${total} / ${BOX_CAP} bars</span></h3>
       <div style="background:#eee;border-radius:8px;height:16px;overflow:hidden;margin:8px 0 14px">
         <div style="height:100%;width:${pct}%;background:${full?'var(--ok)':'var(--gold)'}"></div></div>
       ${total?`<table><thead><tr><th>Bar</th><th class="right">In box</th></tr></thead><tbody>${crows}</tbody></table>`:`<div class="empty"><div class="big">◇</div>Box is empty. Mark batches ready to fill it.</div>`}
@@ -823,8 +843,9 @@ function renderShip(){
         <button class="btn gold" onclick="printExportLabel()" ${total?'':'disabled'}>🖨 Print box label</button>
         <button class="btn teal" onclick="shipExportBox()" ${total?'':'disabled'}>Ship box → Canada</button>
       </div>
-      ${full?`<p class="muted" style="margin-top:8px;color:var(--ok)">✓ Box is full — print the label and ship it.</p>`:`<p class="muted" style="margin-top:8px">${BOX_CAP-total} more bars to fill the box.</p>`}
+      ${full?`<p class="muted" style="margin-top:8px;color:var(--ok)">✓ Box is full — print the label and ship it.</p>`:`<p class="muted" style="margin-top:8px">${BOX_CAP-total} more bars to fill this box.</p>`}
     </div>
+    ${qcard}
     <div class="card no-print"><h3>Empty boxes on hand <span class="muted">(${STATE.boxStock||0})</span></h3>
       <button class="btn ghost" onclick="addBoxes()">+ Receive empty boxes</button>
       ${(STATE.boxStock||0)<2?`<p class="muted" style="margin-top:6px;color:var(--bad)">Low on boxes — order more.</p>`:''}
@@ -894,6 +915,12 @@ async function loadState(){
   }
   if(!STATE.shifts) STATE.shifts=[];
   if(!STATE.exportBox) STATE.exportBox={contents:{},started:''};
+  if(!Array.isArray(STATE.exportBoxes)) STATE.exportBoxes=[];
+  if(!STATE.exportBoxes.length && STATE.exportBox && Object.values(STATE.exportBox.contents||{}).some(q=>q>0)){
+    STATE.exportBoxes=[{id:uid(),contents:Object.assign({},STATE.exportBox.contents),started:STATE.exportBox.started||today()}];
+    STATE.exportBox={contents:{},started:''};
+  }
+  if(!STATE.exportBoxes.length) STATE.exportBoxes=[{id:uid(),contents:{},started:today()}];
   if(!STATE.exportLog) STATE.exportLog=[];
   if(STATE.boxStock===undefined) STATE.boxStock=0;
   PROD_KEYS.forEach(pk=>{ if(STATE.stock[pk]===undefined) STATE.stock[pk]=0; });
@@ -939,18 +966,18 @@ async function patchOrderOnBackend(id, fields){
 }
 
 /* ---- production-state sync (batches / inventory / deliveries) ---- */
-function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies, uom:STATE.uom}; }
+function productionPayload(){ return {batches:STATE.batches, inventory:STATE.inventory, deliveries:STATE.deliveries, ingredientCosts:STATE.ingredientCosts, shipDates:STATE.shipDates, stock:STATE.stock, workers:STATE.workers, roster:STATE.roster, shifts:STATE.shifts, exportBox:STATE.exportBox, exportBoxes:STATE.exportBoxes, exportLog:STATE.exportLog, boxStock:STATE.boxStock, suppliers:STATE.suppliers, restock:STATE.restock, pos:STATE.pos, reorder:STATE.reorder, itemSupplier:STATE.itemSupplier, supplies:STATE.supplies, uom:STATE.uom}; }
 let _pushTimer = null;
 function schedulePush(){ if(!BACKEND_URL) return; clearTimeout(_pushTimer); _pushTimer = setTimeout(pushState, 700); }
 
 // ---- conflict-safe per-area sync (3-way merge vs last-synced snapshot) ----
-const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies','uom'];
+const SYNC_AREAS = ['batches','inventory','deliveries','ingredientCosts','shipDates','stock','workers','roster','shifts','exportBox','exportBoxes','exportLog','boxStock','suppliers','restock','pos','reorder','itemSupplier','supplies','uom'];
 let _syncedSnap = {};
 let _pushing = false;
 let _conflictCtx = null;
 function snapshot(){ const o={}; SYNC_AREAS.forEach(a=>{ o[a]=JSON.stringify(STATE[a]); }); return o; }
 // ---- timestamped per-record merge (newest record wins; offline edits survive) ----
-const LIST_AREAS = ['batches','shifts','deliveries','exportLog','roster','suppliers','restock','pos'];
+const LIST_AREAS = ['batches','shifts','deliveries','exportLog','exportBoxes','roster','suppliers','restock','pos'];
 function _isObj(x){ return x && typeof x==='object' && !Array.isArray(x); }
 function _eq(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
 function _stripU(r){ if(!_isObj(r)) return r; const o={}; for(const k in r){ if(k!=='_u') o[k]=r[k]; } return o; }
