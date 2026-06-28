@@ -346,8 +346,7 @@
         <div class="bp-title">Buy more, give more</div>
         <div class="bp-sub">Stacks on individual bars — our gift sets &amp; collections are already discounted.</div>
         <div class="bp-tiers">
-          <div class="bp-tier"><span class="bp-n">3+</span> bars · save 15%</div>
-          <div class="bp-tier"><span class="bp-n">5+</span> bars · save 18%</div>
+          <div class="bp-tier"><span class="bp-n">5+</span> bars · save 15%</div>
           <div class="bp-tier bp-best"><span class="bp-n">10+</span> bars · save 20% + we gift a bar 🎁</div>
         </div>
         <p class="bp-give">For every 10 bars you buy, we donate a full bar of soap to a family in need in the Philippines. <strong>Your purchase helps wash another person's hands, too.</strong></p>
@@ -545,10 +544,10 @@
     { key:'teatree',   name:'Tea Tree Clarifying Shampoo', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Fresh · Herbal · Minty', price:17, img:'product-tea-tree-shampoo.png', shot:'tea tree shampoo · flat-lay' },
     { key:'cocoshampoo', name:'Coconut Lemongrass Shampoo', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Bright · Citrus · Fresh', price:16, img:'product-coconut-lemongrass-shampoo.png', shot:'coconut lemongrass shampoo · flat-lay' },
     { key:'charcoalshampoo', name:'Charcoal Detox Shampoo', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Earthy · Mint · Clean', price:17, img:'product-charcoal-detox-shampoo.png', shot:'charcoal shampoo · flat-lay' },
-    { key:'trio',       name:'Bestseller Trio', tag:'', detail:'3 soaps · save $6', scent:'Coconut · Charcoal · Calamansi', price:30, img:'product-trio.png', shot:'3-soap trio', bundle:{coconut:1,charcoal:1,calamansi:1} },
-    { key:'giftset',    name:'Gift Set', tag:'', detail:'3 soaps · giftable box', scent:'Moringa · Calamansi · Coconut', price:33, img:'product-giftset.png', shot:'boxed gift set', bundle:{moringa:1,calamansi:1,coconut:1}, gift:true },
-    { key:'soapcollection', name:'Full Soap Collection', tag:'', detail:'All 4 soaps · save $9', scent:'Every soap in the range', price:42, img:'product-soap-collection.png', shot:'4-soap collection', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1} },
-    { key:'shampoocollection', name:'Full Shampoo Collection', tag:'', detail:'All 4 shampoo bars · save $8', scent:'Every shampoo bar', price:60, img:'product-shampoo-collection.png', shot:'4-shampoo collection', bundle:{shampoo:1,teatree:1,cocoshampoo:1,charcoalshampoo:1} },
+    { key:'trio',       name:'Bestseller Trio', tag:'', detail:'3 soaps · save $5', scent:'Coconut · Charcoal · Calamansi', price:31, img:'product-trio.png', shot:'3-soap trio', bundle:{coconut:1,charcoal:1,calamansi:1} },
+    { key:'giftset',    name:'Gift Set', tag:'', detail:'3 soaps · giftable box · save $5', scent:'Moringa · Calamansi · Coconut', price:34, img:'product-giftset.png', shot:'boxed gift set', bundle:{moringa:1,calamansi:1,coconut:1}, gift:true },
+    { key:'soapcollection', name:'Full Soap Collection', tag:'', detail:'All 4 soaps · save $8', scent:'Every soap in the range', price:43, img:'product-soap-collection.png', shot:'4-soap collection', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1} },
+    { key:'shampoocollection', name:'Full Shampoo Collection', tag:'', detail:'All 4 shampoo bars · save $11', scent:'Every shampoo bar', price:57, img:'product-shampoo-collection.png', shot:'4-shampoo collection', bundle:{shampoo:1,teatree:1,cocoshampoo:1,charcoalshampoo:1} },
     { key:'fullcollection', name:'The Full Collection', tag:'BEST VALUE', detail:'All 8 bars · save $24 · best deal', scent:'Buy one, give one — + 1 bar donated to a family in need', price:95, img:'product-full-collection.png', shot:'all 8 bars + 1 donated', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1,shampoo:1,teatree:1,cocoshampoo:1,charcoalshampoo:1}, donate:1 }
   ];
   var PMAP = {}; PRODUCTS.forEach(function(p){ PMAP[p.key]=p; });
@@ -589,7 +588,7 @@
   function looseSubtotal(){ var t=0; for(var k in CART){ var p=PMAP[k]; if(!p.bundle) t+=p.price*CART[k]; } return t; }
   function looseBars(){ var n=0; for(var k in CART){ var p=PMAP[k]; if(!p.bundle) n+=CART[k]; } return n; }
   function bundleDonate(){ var d=0; for(var k in CART){ var p=PMAP[k]; if(p.donate) d+=p.donate*CART[k]; } return d; }
-  function bulkTier(){ var b=looseBars(); if(b>=10) return {pct:0.20,donate:Math.floor(b/10)}; if(b>=5) return {pct:0.18,donate:0}; if(b>=3) return {pct:0.15,donate:0}; return {pct:0,donate:0}; }
+  function bulkTier(){ var b=looseBars(); if(b>=10) return {pct:0.20,donate:Math.floor(b/10)}; if(b>=5) return {pct:0.15,donate:0}; return {pct:0,donate:0}; }
   function cartFinal(){ return cartTotal()-Math.round(looseSubtotal()*bulkTier().pct); }
   function updateCartBadge(){ document.getElementById('cartCount').textContent = cartCount(); }
 
@@ -632,9 +631,8 @@
     document.getElementById('cartSummary').innerHTML = sum;
     var bb = document.getElementById('bulkBar');
     if(keys.length===0){ bb.innerHTML=''; }
-    else if(bars<3) bb.innerHTML='<strong>Buy more, give more.</strong> Add '+(3-bars)+' more bar'+((3-bars)>1?'s':'')+' to save 15%.';
-    else if(bars<5) bb.innerHTML='<strong>\u2713 15% off!</strong> Add '+(5-bars)+' more bar'+((5-bars)>1?'s':'')+' to save 18%.';
-    else if(bars<10) bb.innerHTML='<strong>\u2713 18% off!</strong> Add '+(10-bars)+' more bar'+((10-bars)>1?'s':'')+' to save 20% and gift a bar to someone in need.';
+    else if(bars<5) bb.innerHTML='<strong>Buy more, give more.</strong> Add '+(5-bars)+' more bar'+((5-bars)>1?'s':'')+' to save 15%.';
+    else if(bars<10) bb.innerHTML='<strong>\u2713 15% off!</strong> Add '+(10-bars)+' more bar'+((10-bars)>1?'s':'')+' to save 20% and gift a bar to someone in need.';
     else bb.innerHTML='<strong>\u2713 20% off \u2014 your best deal!</strong>';
     var give = document.getElementById('giveLine');
     if(keys.length===0){ give.innerHTML=''; }
@@ -773,3 +771,20 @@
   }
 
   // ---- Email signup --
+  function subscribe(e){
+    if(e && e.preventDefault) e.preventDefault();
+    var form=document.getElementById('emailForm');
+    var ok=document.getElementById('emailOk');
+    try{
+      var em=form.querySelector('input[type=email]'); var nm=form.querySelector('input[type=text]');
+      var subs=JSON.parse(localStorage.getItem('kalinga:web:subs')||'[]');
+      subs.push({name:nm?nm.value:'', email:em?em.value:'', at:Date.now()});
+      localStorage.setItem('kalinga:web:subs', JSON.stringify(subs));
+    }catch(err){}
+    if(form) form.style.display='none';
+    if(ok) ok.style.display='block';
+    return false;
+  }
+</script>
+</body>
+</html>
