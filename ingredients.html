@@ -49,7 +49,13 @@ const PRODUCTS={
   charcoal:{ name:"Charcoal & Lemongrass Detox", fr:"Charbon & Citronnelle Détox", type:"Cold-process soap", net:"100 g",
     ing:"Cocos nucifera (coconut) oil, Aqua, Sodium hydroxide, Charcoal powder, Cymbopogon flexuosus (lemongrass) oil, Mentha piperita (peppermint) oil, Citral*, Limonene*, Menthol*." },
   shampoo:{ name:"Ylang-Ylang Shampoo Bar", fr:"Barre de Shampooing à l'Ylang-Ylang", type:"Shampoo bar", net:"80 g",
-    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Cananga odorata (ylang-ylang) flower oil, Argania spinosa (argan) kernel oil, Butyrospermum parkii (shea) butter, Benzyl benzoate*, Benzyl salicylate*, Linalool*, Geraniol*." }
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Cananga odorata (ylang-ylang) flower oil, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Benzyl benzoate*, Benzyl salicylate*, Linalool*, Geraniol*." },
+  teatree:{ name:"Tea Tree Clarifying Shampoo", fr:"Barre de Shampooing Clarifiant à l'Arbre à Thé", type:"Shampoo bar", net:"80 g",
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Melaleuca alternifolia (tea tree) leaf oil, Mentha piperita (peppermint) oil, Limonene*, Menthol*." },
+  cocoshampoo:{ name:"Coconut Lemongrass Shampoo", fr:"Barre de Shampooing Coco & Citronnelle", type:"Shampoo bar", net:"80 g",
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Cymbopogon flexuosus (lemongrass) oil, Citral*, Limonene*, Geraniol*." },
+  charcoalshampoo:{ name:"Charcoal Detox Shampoo", fr:"Barre de Shampooing Détox au Charbon", type:"Shampoo bar", net:"80 g",
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Charcoal powder, Melaleuca alternifolia (tea tree) leaf oil, Mentha piperita (peppermint) oil, Limonene*, Menthol*." }
 };
 function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function getKey(){ const p=new URLSearchParams(location.search).get('p'); return (p&&PRODUCTS[p])?p:null; }

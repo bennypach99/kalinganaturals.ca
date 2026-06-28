@@ -289,7 +289,7 @@ const PRODUCTS = {
   calamansi:{
     name:"Calamansi Brightening Bar", priceCAD:0, weight:100, cure:35,
     ingredients:[
-      {key:"coconut_oil", name:"Virgin Coconut Oil", grams:60, php:0},
+      {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:60, php:0},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
       {key:"calamansi", name:"Calamansi Extract", grams:8, php:0},
       {key:"coconut_milk", name:"Coconut Milk", grams:10, php:0},
@@ -311,7 +311,7 @@ const PRODUCTS = {
   coconut:{
     name:"Virgin Coconut & Lemongrass", priceCAD:0, weight:100, cure:35,
     ingredients:[
-      {key:"coconut_oil", name:"Virgin Coconut Oil", grams:70, php:0},
+      {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:70, php:0},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
       {key:"castor_oil", name:"Castor Oil", grams:10, php:0},
       {key:"lemongrass_eo", name:"Lemongrass Essential Oil", grams:3, php:0},
@@ -330,7 +330,7 @@ const PRODUCTS = {
   moringa:{
     name:"Moringa & Coconut Milk", priceCAD:0, weight:100, cure:35,
     ingredients:[
-      {key:"coconut_oil", name:"Virgin Coconut Oil", grams:55, php:0},
+      {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:55, php:0},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
       {key:"coconut_milk", name:"Coconut Milk", grams:12, php:0},
       {key:"pili_oil", name:"Pili Seed Oil", grams:10, php:0},
@@ -351,7 +351,7 @@ const PRODUCTS = {
   charcoal:{
     name:"Charcoal & Lemongrass Detox", priceCAD:0, weight:100, cure:35,
     ingredients:[
-      {key:"coconut_oil", name:"Virgin Coconut Oil", grams:65, php:0},
+      {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:65, php:0},
       {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
       {key:"charcoal", name:"Activated Charcoal Powder", grams:3, php:0},
       {key:"lemongrass_eo", name:"Lemongrass Essential Oil", grams:2, php:0},
@@ -374,15 +374,69 @@ const PRODUCTS = {
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:0},
       {key:"ylang_eo", name:"Ylang-Ylang Essential Oil", grams:3, php:0},
-      {key:"argan_oil", name:"Argan Oil", grams:8, php:0},
+      {key:"castor_oil", name:"Castor Oil", grams:9, php:0},
       {key:"shea", name:"Shea Butter", grams:12, php:0},
     ],
     steps:[
       {t:"Suit up — gloves, mask (SCI dust), goggles.", timer:0},
       {t:"Warm SCI with coconut oil and shea butter until pliable.", timer:420},
-      {t:"Knead in argan oil and ylang-ylang oil to a dough.", timer:240},
+      {t:"Knead in castor oil and ylang-ylang oil to a dough.", timer:240},
       {t:"Press firmly into moulds.", timer:120},
       {t:"Release after 12h. Set to cure (6–8 weeks).", timer:0},
+    ]
+  },
+  teatree:{
+    name:"Tea Tree Clarifying Shampoo", priceCAD:0, weight:85, cure:14,
+    ingredients:[
+      {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
+      {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:0},
+      {key:"castor_oil", name:"Castor Oil", grams:9, php:0},
+      {key:"shea", name:"Shea Butter", grams:10, php:0},
+      {key:"tea_tree_eo", name:"Tea Tree Essential Oil", grams:3, php:0},
+      {key:"peppermint_eo", name:"Peppermint Essential Oil", grams:1, php:0},
+    ],
+    steps:[
+      {t:"Suit up — gloves, mask (SCI dust), goggles.", timer:0},
+      {t:"Warm SCI with coconut oil, castor oil and shea until pliable.", timer:420},
+      {t:"Knead in tea tree and peppermint oils to a uniform dough.", timer:240},
+      {t:"Press firmly into moulds.", timer:120},
+      {t:"Release after 12h. Air-dry 1–2 weeks.", timer:0},
+    ]
+  },
+  cocoshampoo:{
+    name:"Coconut Lemongrass Shampoo", priceCAD:0, weight:85, cure:14,
+    ingredients:[
+      {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
+      {key:"coconut_oil", name:"Virgin Coconut Oil", grams:30, php:0},
+      {key:"castor_oil", name:"Castor Oil", grams:9, php:0},
+      {key:"shea", name:"Shea Butter", grams:12, php:0},
+      {key:"lemongrass_eo", name:"Lemongrass Essential Oil", grams:3, php:0},
+    ],
+    steps:[
+      {t:"Suit up — gloves, mask (SCI dust), goggles.", timer:0},
+      {t:"Warm SCI with coconut oil, castor oil and shea until pliable.", timer:420},
+      {t:"Knead in lemongrass oil to a uniform dough.", timer:240},
+      {t:"Press firmly into moulds.", timer:120},
+      {t:"Release after 12h. Air-dry 1–2 weeks.", timer:0},
+    ]
+  },
+  charcoalshampoo:{
+    name:"Charcoal Detox Shampoo", priceCAD:0, weight:85, cure:14,
+    ingredients:[
+      {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
+      {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:0},
+      {key:"castor_oil", name:"Castor Oil", grams:9, php:0},
+      {key:"shea", name:"Shea Butter", grams:8, php:0},
+      {key:"charcoal", name:"Activated Charcoal Powder", grams:3, php:0},
+      {key:"tea_tree_eo", name:"Tea Tree Essential Oil", grams:2, php:0},
+      {key:"peppermint_eo", name:"Peppermint Essential Oil", grams:1, php:0},
+    ],
+    steps:[
+      {t:"Suit up — gloves, mask (SCI dust), goggles.", timer:0},
+      {t:"Warm SCI with coconut oil, castor oil and shea until pliable.", timer:420},
+      {t:"Knead in charcoal, tea tree and peppermint to a uniform dough.", timer:240},
+      {t:"Press firmly into moulds.", timer:120},
+      {t:"Release after 12h. Air-dry 1–2 weeks.", timer:0},
     ]
   },
 };

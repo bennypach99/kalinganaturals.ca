@@ -134,6 +134,9 @@
       <option value="moringa">Moringa &amp; Coconut Milk</option>
       <option value="charcoal">Charcoal &amp; Lemongrass Detox</option>
       <option value="shampoo">Ylang-Ylang Shampoo Bar</option>
+      <option value="teatree">Tea Tree Clarifying Shampoo</option>
+      <option value="cocoshampoo">Coconut Lemongrass Shampoo</option>
+      <option value="charcoalshampoo">Charcoal Detox Shampoo</option>
     </select>
     <button onclick="window.print()">Print / Save as PDF</button>
     <button class="alt" onclick="document.querySelectorAll('.editable').forEach(e=>e.contentEditable=true);this.textContent='Editing on';">Enable editing</button>
@@ -230,12 +233,24 @@ const PRESETS = {
   },
   shampoo: {
     pname:"Ylang-Ylang Shampoo Bar", pnamefr:"Barre de Shampooing à l'Ylang-Ylang",
-    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Cananga odorata (ylang-ylang) flower oil, Argania spinosa (argan) kernel oil, Butyrospermum parkii (shea) butter, Benzyl benzoate*, Benzyl salicylate*, Linalool*, Geraniol*. *Naturally occurring in essential oils."
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Cananga odorata (ylang-ylang) flower oil, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Benzyl benzoate*, Benzyl salicylate*, Linalool*, Geraniol*. *Naturally occurring in essential oils."
+  },
+  teatree: {
+    pname:"Tea Tree Clarifying Shampoo", pnamefr:"Barre de Shampooing Clarifiant à l'Arbre à Thé",
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Melaleuca alternifolia (tea tree) leaf oil, Mentha piperita (peppermint) oil, Limonene*, Menthol*. *Naturally occurring in essential oils."
+  },
+  cocoshampoo: {
+    pname:"Coconut Lemongrass Shampoo", pnamefr:"Barre de Shampooing Coco & Citronnelle",
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Cymbopogon flexuosus (lemongrass) oil, Citral*, Limonene*, Geraniol*. *Naturally occurring in essential oils."
+  },
+  charcoalshampoo: {
+    pname:"Charcoal Detox Shampoo", pnamefr:"Barre de Shampooing Détox au Charbon",
+    ing:"Sodium cocoyl isethionate, Cocos nucifera (coconut) oil, Aqua, Ricinus communis (castor) seed oil, Butyrospermum parkii (shea) butter, Charcoal powder, Melaleuca alternifolia (tea tree) leaf oil, Mentha piperita (peppermint) oil, Limonene*, Menthol*. *Naturally occurring in essential oils."
   }
 };
 function loadPreset(){
   const k=document.getElementById('preset').value, p=PRESETS[k];
-  const sh=(k==='shampoo');
+  const sh=['shampoo','teatree','cocoshampoo','charcoalshampoo'].includes(k);
   document.getElementById('pname').textContent=p.pname;
   document.getElementById('pnamefr').textContent=p.pnamefr;
   document.getElementById('net').textContent=sh?'NET WT 80 g · POIDS NET 80 g':'NET WT 100 g · POIDS NET 100 g';
