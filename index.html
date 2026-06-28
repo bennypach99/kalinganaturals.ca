@@ -537,14 +537,19 @@
 <script>
   // ---- Products ----  (key links each product to the operations app)
   var PRODUCTS = [
-    { key:'coconut',   name:'Virgin Coconut & Lemongrass', tag:'Soap', detail:'Cold Process · 100g', scent:'Bright · Citrus · Herbaceous', price:11, img:'product-coconut-lemongrass.png', shot:'coconut · flat-lay' },
-    { key:'calamansi', name:'Calamansi Brightening Bar', tag:'Soap', detail:'Cold Process · 100g', scent:'Zesty · Citrus · Uplifting', price:13, img:'product-calamansi.png', shot:'calamansi · flat-lay' },
-    { key:'moringa',   name:'Moringa & Coconut Milk', tag:'Soap', detail:'Cold Process · 100g', scent:'Creamy · Green · Gentle', price:14, img:'product-moringa.png', shot:'moringa · flat-lay' },
+    { key:'coconut',   name:'Virgin Coconut & Lemongrass', tag:'Soap', detail:'Cold Process · 100g', scent:'Bright · Citrus · Herbaceous', price:12, img:'product-coconut-lemongrass.png', shot:'coconut · flat-lay' },
+    { key:'calamansi', name:'Calamansi Brightening Bar', tag:'Soap', detail:'Cold Process · 100g', scent:'Zesty · Citrus · Uplifting', price:12, img:'product-calamansi.png', shot:'calamansi · flat-lay' },
+    { key:'moringa',   name:'Moringa & Coconut Milk', tag:'Soap', detail:'Cold Process · 100g', scent:'Creamy · Green · Gentle', price:15, img:'product-moringa.png', shot:'moringa · flat-lay' },
     { key:'charcoal',  name:'Charcoal & Lemongrass Detox', tag:'Soap', detail:'Cold Process · 100g', scent:'Earthy · Smoky · Fresh', price:12, img:'product-charcoal-detox.png', shot:'charcoal · flat-lay' },
-    { key:'shampoo',   name:'Ylang-Ylang Shampoo Bar', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Floral · Sweet · Calming', price:16, img:'product-ylang-ylang.png', shot:'ylang-ylang · flat-lay' },
-    { key:'trio',       name:'Bestseller Trio', tag:'', detail:'3 bars · save $4', scent:'Moringa · Charcoal · Virgin Coconut', price:32, img:'product-trio.png', shot:'3-bar trio', bundle:{moringa:1,charcoal:1,coconut:1} },
-    { key:'collection', name:'The Full Collection', tag:'', detail:'All 5 bars · save $8', scent:'Every scent in the range', price:58, img:'product-collection.png', shot:'5-bar collection', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1,shampoo:1} },
-    { key:'giftset',    name:'Gift Set', tag:'', detail:'3 bars · giftable box', scent:'Virgin Coconut · Charcoal · Moringa', price:34, img:'product-giftset.png', shot:'boxed gift set', bundle:{coconut:1,charcoal:1,moringa:1}, gift:true }
+    { key:'shampoo',   name:'Ylang-Ylang Shampoo Bar', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Floral · Sweet · Calming', price:18, img:'product-ylang-ylang.png', shot:'ylang-ylang · flat-lay' },
+    { key:'teatree',   name:'Tea Tree Clarifying Shampoo', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Fresh · Herbal · Minty', price:17, img:'product-tea-tree-shampoo.png', shot:'tea tree shampoo · flat-lay' },
+    { key:'cocoshampoo', name:'Coconut Lemongrass Shampoo', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Bright · Citrus · Fresh', price:16, img:'product-coconut-lemongrass-shampoo.png', shot:'coconut lemongrass shampoo · flat-lay' },
+    { key:'charcoalshampoo', name:'Charcoal Detox Shampoo', tag:'Shampoo', detail:'Cold Process · 80g', scent:'Earthy · Mint · Clean', price:17, img:'product-charcoal-detox-shampoo.png', shot:'charcoal shampoo · flat-lay' },
+    { key:'trio',       name:'Bestseller Trio', tag:'', detail:'3 soaps · save $6', scent:'Coconut · Charcoal · Calamansi', price:30, img:'product-trio.png', shot:'3-soap trio', bundle:{coconut:1,charcoal:1,calamansi:1} },
+    { key:'giftset',    name:'Gift Set', tag:'', detail:'3 soaps · giftable box', scent:'Moringa · Calamansi · Coconut', price:33, img:'product-giftset.png', shot:'boxed gift set', bundle:{moringa:1,calamansi:1,coconut:1}, gift:true },
+    { key:'soapcollection', name:'Full Soap Collection', tag:'', detail:'All 4 soaps · save $9', scent:'Every soap in the range', price:42, img:'product-soap-collection.png', shot:'4-soap collection', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1} },
+    { key:'shampoocollection', name:'Full Shampoo Collection', tag:'', detail:'All 4 shampoo bars · save $8', scent:'Every shampoo bar', price:60, img:'product-shampoo-collection.png', shot:'4-shampoo collection', bundle:{shampoo:1,teatree:1,cocoshampoo:1,charcoalshampoo:1} },
+    { key:'fullcollection', name:'The Full Collection', tag:'BEST VALUE', detail:'All 8 bars · save $24 · best deal', scent:'Buy one, give one — + 1 bar donated to a family in need', price:95, img:'product-full-collection.png', shot:'all 8 bars + 1 donated', bundle:{coconut:1,calamansi:1,moringa:1,charcoal:1,shampoo:1,teatree:1,cocoshampoo:1,charcoalshampoo:1}, donate:1 }
   ];
   var PMAP = {}; PRODUCTS.forEach(function(p){ PMAP[p.key]=p; });
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
