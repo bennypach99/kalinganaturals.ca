@@ -102,6 +102,7 @@
   .pill.cure{background:#F3E5F5;color:#7B1FA2}
   .pill.ready{background:var(--ok-bg);color:var(--ok)}
   .pill.ship{background:var(--cream-d);color:var(--grey)}
+  .pill.stock{background:#E8EAF6;color:#3949AB}
   /* ── Misc ── */
   .empty{text-align:center;padding:46px 20px;color:var(--grey)}
   .empty .big{font-size:40px;margin-bottom:8px;opacity:.5}
@@ -183,6 +184,18 @@
     </div>
   </div>
 </div>
+<div id="stockForm" class="pm" style="display:none">
+  <div class="pm-box" style="max-width:600px;text-align:left;max-height:90vh;overflow-y:auto">
+    <h3 style="margin:0 0 6px">Request production</h3>
+    <p class="muted" style="margin-bottom:12px">Ask the workshop to make bars for stock — no customer order needed. It appears on the tablet's Production tab like any other demand.</p>
+    <div class="row" id="stockFormItems"></div>
+    <label class="fld" style="margin-top:6px"><span>Note (optional)</span><input id="stk_note" placeholder="e.g. market stock for August"></label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn ghost" onclick="closeStockForm()">Close</button>
+      <button class="btn gold" onclick="addStockRequest()">Request production</button>
+    </div>
+  </div>
+</div>
 <div id="supForm" class="pm" style="display:none">
   <div class="pm-box" style="max-width:560px;text-align:left">
     <h3 id="supFormTitle" style="margin:0 0 12px">Add supplier</h3>
@@ -240,10 +253,10 @@ let FX = FX_DEFAULT;
 // ingredients: {name, grams, phpCost} per single bar.
 const PRODUCTS = {
   calamansi:{
-    name:"Calamansi Brightening Bar", priceCAD:13, weight:100, cure:35,
+    name:"Calamansi Brightening Bar", priceCAD:13, weight:100, cure:35, type:"cp", water:26.6, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:60, php:5},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:13.3, php:3},
       {key:"calamansi", name:"Calamansi Extract", grams:8, php:6},
       {key:"coconut_milk", name:"Coconut Milk", grams:10, php:3},
       {key:"olive_oil", name:"Olive Oil", grams:15, php:5},
@@ -262,10 +275,10 @@ const PRODUCTS = {
     ]
   },
   coconut:{
-    name:"Virgin Coconut & Lemongrass", priceCAD:11, weight:100, cure:35,
+    name:"Virgin Coconut & Lemongrass", priceCAD:11, weight:100, cure:35, type:"cp", water:26.8, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:70, php:6},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:13.4, php:3},
       {key:"castor_oil", name:"Castor Oil", grams:10, php:5},
       {key:"lemongrass_eo", name:"Lemongrass Essential Oil", grams:3, php:10},
     ],
@@ -281,10 +294,10 @@ const PRODUCTS = {
     ]
   },
   moringa:{
-    name:"Moringa & Coconut Milk", priceCAD:14, weight:100, cure:35,
+    name:"Moringa & Coconut Milk", priceCAD:14, weight:100, cure:35, type:"cp", water:25.6, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:55, php:5},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:12.8, php:3},
       {key:"coconut_milk", name:"Coconut Milk", grams:12, php:4},
       {key:"pili_oil", name:"Pili Seed Oil", grams:10, php:9},
       {key:"moringa", name:"Moringa Leaf Powder", grams:4, php:5},
@@ -302,10 +315,10 @@ const PRODUCTS = {
     ]
   },
   charcoal:{
-    name:"Charcoal & Lemongrass Detox", priceCAD:12, weight:100, cure:35,
+    name:"Charcoal & Lemongrass Detox", priceCAD:12, weight:100, cure:35, type:"cp", water:22.6, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:65, php:6},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:3},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:11.3, php:3},
       {key:"charcoal", name:"Activated Charcoal Powder", grams:3, php:4},
       {key:"lemongrass_eo", name:"Lemongrass Essential Oil", grams:2, php:7},
       {key:"peppermint_eo", name:"Peppermint Essential Oil", grams:1, php:5},
@@ -322,7 +335,7 @@ const PRODUCTS = {
     ]
   },
   shampoo:{
-    name:"Ylang-Ylang Shampoo Bar", priceCAD:16, weight:90, cure:49,
+    name:"Ylang-Ylang Shampoo Bar", priceCAD:16, weight:90, cure:49, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:18},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:3},
@@ -339,7 +352,7 @@ const PRODUCTS = {
     ]
   },
   teatree:{
-    name:"Tea Tree Clarifying Shampoo", priceCAD:17, weight:85, cure:14,
+    name:"Tea Tree Clarifying Shampoo", priceCAD:17, weight:85, cure:14, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:59},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:9},
@@ -357,7 +370,7 @@ const PRODUCTS = {
     ]
   },
   cocoshampoo:{
-    name:"Coconut Lemongrass Shampoo", priceCAD:16, weight:85, cure:14,
+    name:"Coconut Lemongrass Shampoo", priceCAD:16, weight:85, cure:14, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:59},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:30, php:14},
@@ -374,7 +387,7 @@ const PRODUCTS = {
     ]
   },
   charcoalshampoo:{
-    name:"Charcoal Detox Shampoo", priceCAD:17, weight:85, cure:14,
+    name:"Charcoal Detox Shampoo", priceCAD:17, weight:85, cure:14, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:59},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:9},
@@ -441,7 +454,7 @@ const daysSince = d=>Math.floor((Date.now()-new Date(d).getTime())/86400000);
    ============================================================ */
 function weekStart(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setHours(0,0,0,0); x.setDate(x.getDate()-day); return x; }
 function renderDash(){
-  const orders=STATE.orders;
+  const orders=STATE.orders.filter(o=>!isStock(o));   // stock builds don't touch revenue
   const shipped=orders.filter(o=>o.status==='shipped');
   const open=orders.filter(o=>o.status!=='shipped');
   const revenue=shipped.reduce((s,o)=>s+orderRevenueCAD(o),0);
@@ -543,12 +556,13 @@ function renderOrders(){
     return `<tr>
       <td><strong>${o.customer}</strong><div class="muted">${o.created}</div>${(STATE.shipDates&&STATE.shipDates[o.id])?`<div class="muted">\ud83d\udce6 ship by ${STATE.shipDates[o.id]}</div>`:''}</td>
       <td>${items}<div class="muted">${orderBars(o)} bars</div></td>
-      <td class="right">${cad(orderRevenueCAD(o))}</td>
-      <td><span class="pill ${o.status}">${o.status}</span></td>
+      <td class="right">${isStock(o)?'<span class="muted">—</span>':cad(orderRevenueCAD(o))}</td>
+      <td>${isStock(o)?`<span class="pill ${o.status==='shipped'?'ready':'stock'}">${o.status==='shipped'?'done':'stock build'}</span>`:`<span class="pill ${o.status}">${o.status}</span>`}</td>
       <td class="right no-print">
+        ${isStock(o)?(o.status!=='shipped'?`<button class="btn sm teal" onclick="fulfillStockRequest('${o.id}')">✓ Complete</button>`:''):`
         ${o.status==='new'?`<button class="btn sm teal" onclick="queueOrder('${o.id}')">Queue to make</button>`:''}
         ${o.status==='make'?`<button class="btn sm ghost" onclick="backOrder('${o.id}')">← Back</button>`:''}
-        <button class="btn sm ghost" onclick="setShipDate('${o.id}')" title="Set ship-by date">\ud83d\udcc5</button>
+        <button class="btn sm ghost" onclick="setShipDate('${o.id}')" title="Set ship-by date">\ud83d\udcc5</button>`}
         <button class="btn sm ghost" onclick="delOrder('${o.id}')">✕</button>
       </td></tr>`;
   }).join('');
@@ -557,7 +571,7 @@ function renderOrders(){
     <div class="page-head"><div>
       <h2>Orders</h2><p>Enter orders as they arrive. Queue them to generate the make list.</p>
     </div></div>
-    <div class="no-print" style="margin-bottom:14px"><button class="btn gold" onclick="openOrderForm()">+ Add order</button></div>
+    <div class="no-print" style="margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn gold" onclick="openOrderForm()">+ Add order</button> <button class="btn teal" onclick="openStockForm()">+ Request production (no order)</button></div>
     <div class="card">
       <h3>All orders <span class="muted">(${open.length} open)</span></h3>
       ${STATE.orders.length?`<table><thead><tr><th>Customer</th><th>Items</th><th class="right">Revenue</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
@@ -638,6 +652,40 @@ function delOrder(id){
   STATE.batches=STATE.batches.filter(b=>b.orderId!==id);
   const s=loadSync(); if(s.deleted.indexOf(id)===-1){s.deleted.push(id);saveSync(s);}
   saveState();renderOrders();renderTabs();
+}
+
+/* ============================================================
+   STOCK-BUILD REQUESTS — produce any amount with no customer order.
+   Stored as an internal order so it flows to the tablet through the
+   normal order sync and shows up in the workshop's Production need.
+   Excluded from revenue, pipeline, and shipping.
+   ============================================================ */
+const isStock=o=>!!(o&&(o.internal||String(o.id).indexOf('stock-')===0));
+function openStockForm(){
+  const el=document.getElementById('stockFormItems'); if(!el) return;
+  el.innerHTML=PROD_KEYS.map(pk=>`<label class="fld" style="min-width:130px;flex:1"><span>${PRODUCTS[pk].name.replace(' Bar','')}</span><input type="number" min="0" step="1" value="0" id="stk_${pk}"></label>`).join('');
+  const n=document.getElementById('stk_note'); if(n) n.value='';
+  document.getElementById('stockForm').style.display='flex';
+}
+function closeStockForm(){ const m=document.getElementById('stockForm'); if(m) m.style.display='none'; }
+function addStockRequest(){
+  const items={}; let total=0;
+  PROD_KEYS.forEach(pk=>{ const e=$('#stk_'+pk); const q=parseInt(e&&e.value)||0; if(q>0){ items[pk]=q; total+=q; } });
+  if(!total){ toast('Enter at least one quantity'); return; }
+  const note=(($('#stk_note')||{}).value||'').trim();
+  const order={id:'stock-'+uid(), customer:'Stock build'+(note?' — '+note:''), email:'', phone:'',
+    address:'', items, status:'new', created:today(), shipped:null, agreedTotal:0, internal:true};
+  STATE.orders.push(order);
+  pushOrderToBackend(order);
+  closeStockForm(); saveState(); toast(total+' bars requested for stock');
+  renderTabs(); if(CURRENT_TAB==='prod') renderProd(); else if(CURRENT_TAB==='orders') renderOrders();
+}
+function fulfillStockRequest(id){
+  const o=STATE.orders.find(x=>x.id===id); if(!o) return;
+  if(!confirm('Mark this stock request complete? The workshop will stop being asked for these bars.')) return;
+  o.status='shipped'; o.shipped=today();
+  patchOrderOnBackend(id,{status:'shipped',shipped:o.shipped});
+  saveState(); toast('Stock request completed'); renderOrders(); renderTabs();
 }
 
 /* ============================================================
@@ -793,7 +841,8 @@ function renderProd(){
     </div>`;
   }).join('');
   $('#view-prod').innerHTML=`
-    <div class="page-head"><div><h2>Production</h2><p>What the workshop needs to make, in priority order (each batch is ${BATCH_SIZE} bars). The team makes these on the tablet.</p></div></div>
+    <div class="page-head"><div><h2>Production</h2><p>What the workshop needs to make, in priority order (each batch is ${BATCH_SIZE} bars). The team makes these on the tablet.</p></div>
+      <div class="no-print"><button class="btn gold" onclick="openStockForm()">+ Request production (no order)</button></div></div>
     ${cards}`;
 }
 
@@ -872,8 +921,8 @@ function renderShip(){
   const sd=STATE.shipDates||{};
   const incoming=(STATE.exportLog||[]).filter(b=>!b.received).slice().reverse();
   const stock=STATE.stock||{};
-  const open=STATE.orders.filter(o=>o.status!=='shipped');
-  const shipped=STATE.orders.filter(o=>o.status==='shipped');
+  const open=STATE.orders.filter(o=>o.status!=='shipped' && !isStock(o));
+  const shipped=STATE.orders.filter(o=>o.status==='shipped' && !isStock(o));
   const incRows=incoming.map(b=>{
     const items=Object.entries(b.contents||{}).filter(([k,q])=>q>0).map(([k,q])=>`${q}× ${PRODUCTS[k].name.split(' ')[0]}`).join(', ');
     return `<tr><td><strong>${b.shipped}</strong></td><td>${items}</td><td class="right">${b.bars||0} bars</td>
@@ -903,7 +952,7 @@ function renderShip(){
       ${stockRows?`<table><thead><tr><th>Bar</th><th class="right">In stock</th></tr></thead><tbody>${stockRows}</tbody></table>`:`<div class="muted">No stock yet — receive a box above.</div>`}
     </div>
     ${(function(){
-      const up=STATE.orders.filter(o=>o.status!=='shipped'&&sd[o.id]).map(o=>({o,d:sd[o.id]})).sort((a,b)=>a.d<b.d?-1:1);
+      const up=STATE.orders.filter(o=>o.status!=='shipped'&&!isStock(o)&&sd[o.id]).map(o=>({o,d:sd[o.id]})).sort((a,b)=>a.d<b.d?-1:1);
       if(!up.length) return '';
       return `<div class="card"><h3>Upcoming deliveries (${up.length})</h3>
         <table><thead><tr><th>Ship by</th><th>Customer</th><th>Items</th><th class="right">In</th></tr></thead><tbody>${up.map(function(x){
@@ -982,6 +1031,13 @@ const POLL_MS = 10000;
 const SYNC_KEY = 'kalinga:ops:sync';
 let START_TAB = 'dash';
 
+/* ---- keep the manager signed in across refreshes (session lasts 12 h) ---- */
+const SESS_KEY = 'kalinga:ops:session';
+function loadSavedSession(){ try{ const s=JSON.parse(localStorage.getItem(SESS_KEY)); if(s&&s.token&&s.exp&&s.exp*1000>Date.now()+60000) return s; }catch(e){} return null; }
+function saveSessionLocal(d){ try{ localStorage.setItem(SESS_KEY, JSON.stringify({token:d.token, exp:d.exp, name:d.name||''})); }catch(e){} }
+function clearSessionLocal(){ try{ localStorage.removeItem(SESS_KEY); }catch(e){} }
+function sessionExpired(){ if(!AUTH_ENABLED) return; clearSessionLocal(); if(ADMIN_SESSION){ ADMIN_SESSION=''; showAdminGate(); } }
+
 function backendBase(){ return BACKEND_URL.replace(/\/$/,''); }
 function loadSync(){ try{ return JSON.parse(localStorage.getItem(SYNC_KEY)) || {cursor:'',deleted:[],stateVersion:0}; }catch(e){ return {cursor:'',deleted:[],stateVersion:0}; } }
 function saveSync(s){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify(s)); }catch(e){} }
@@ -1013,7 +1069,15 @@ function mergeServerOrders(orders, sync){
   let changed=false; const byId={}; STATE.orders.forEach(o=>byId[o.id]=o);
   orders.forEach(srv=>{
     if(sync.deleted.indexOf(srv.id)!==-1) return;       // locally deleted -> don't resurrect
-    if(!byId[srv.id]){ STATE.orders.push(srv); byId[srv.id]=srv; changed=true; }
+    const cur=byId[srv.id];
+    if(!cur){ STATE.orders.push(srv); byId[srv.id]=srv; changed=true; }
+    else{
+      // server is authoritative for order fields — every edit is POSTed/PATCHed there,
+      // so status changes (shipped, make, completed stock builds) reach every device.
+      ['status','shipped','items','customer','email','address'].forEach(k=>{
+        if(srv[k]!==undefined && JSON.stringify(srv[k])!==JSON.stringify(cur[k])){ cur[k]=srv[k]; changed=true; }
+      });
+    }
   });
   return changed;
 }
@@ -1114,6 +1178,7 @@ function stampChanges(){
 }
 async function fetchServerState(){
   try{ const r=await fetch(backendBase()+'/state',{headers:{'X-Kalinga-Token':BACKEND_READ_TOKEN,'X-Kalinga-Session':ADMIN_SESSION}});
+    if(r.status===401){ sessionExpired(); return null; }
     if(!r.ok) return null; const d=await r.json(); if(!d||!d.ok) return null; return d; }catch(e){ return null; }
 }
 async function pushState(){
@@ -1164,7 +1229,7 @@ async function onGoogleCredential(resp){
   try{
     const r=await fetch(backendBase()+'/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:resp.credential})});
     const d=await r.json();
-    if(d&&d.ok&&d.token){ ADMIN_SESSION=d.token; hideAdminGate(); afterAdminLogin(d); }
+    if(d&&d.ok&&d.token){ ADMIN_SESSION=d.token; saveSessionLocal(d); hideAdminGate(); afterAdminLogin(d); }
     else if(err){ err.style.display='block'; err.textContent=authErrMsg(d&&d.error); }
   }catch(e){ if(err){ err.style.display='block'; err.textContent='Network error — check the connection and try again.'; } }
 }
@@ -1175,12 +1240,29 @@ function authErrMsg(code){
     invalid_token:'Sign-in failed — please try again.'}[code])||'Sign-in failed — please try again.';
 }
 function afterAdminLogin(d){ try{ toast('Signed in'+(d&&d.name?' — '+d.name:'')); }catch(e){} startBackendSync(); }
+/* ---- back button: confirm instead of leaving the app ---- */
+(function(){
+  let leaving=false;
+  try{ history.pushState({kn:1},''); }catch(e){ return; }
+  window.addEventListener('popstate', function(){
+    if(leaving) return;
+    try{ history.pushState({kn:1},''); }catch(e){}
+    setTimeout(function(){
+      if(confirm('Leave Kalinga Operations?')){ leaving=true; history.go(-2); }
+    },30);
+  });
+})();
+
 (async function init(){
   await loadState();
   FX=parseFloat($('#fxRate').value)||FX_DEFAULT;
   renderTabs();
   switchTab(START_TAB);
-  if(AUTH_ENABLED){ showAdminGate(); } else { startBackendSync(); }
+  if(AUTH_ENABLED){
+    const s=loadSavedSession();
+    if(s){ ADMIN_SESSION=s.token; startBackendSync(); }   // refresh keeps you signed in
+    else { showAdminGate(); }
+  } else { startBackendSync(); }
 })();
 
 

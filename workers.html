@@ -143,6 +143,32 @@
   .login-manual{display:block;margin:18px auto 0;background:none;border:none;color:rgba(248,244,238,.55);text-decoration:underline;cursor:pointer;font-size:13px}
   .pm{position:fixed;inset:0;z-index:520;background:rgba(20,30,40,.6);display:flex;align-items:center;justify-content:center;padding:20px}
   .pm-box{background:#fff;border-radius:12px;padding:26px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  /* ── Tablet workstation sizing ── */
+  html{-webkit-text-size-adjust:100%;touch-action:manipulation}
+  body{font-size:16px}
+  .tabs button{padding:16px 20px;font-size:15px}
+  .btn{padding:13px 22px;font-size:15px;min-height:48px}
+  .btn.sm{padding:9px 14px;font-size:13px;min-height:40px}
+  input,select,textarea{padding:12px 13px;font-size:16px}
+  table{font-size:14px}
+  td{padding:12px 10px}
+  /* ── Guided make (wizard) ── */
+  .wiz-chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:4px 0 2px}
+  .wiz-chip{background:var(--cream-d);border:1px solid var(--line);border-radius:20px;padding:7px 15px;font-size:14px;font-weight:600;color:var(--navy)}
+  .wiz-chip.temp{background:#FFF3E0;color:#B26500;border-color:#F3D9B0;font-size:16px}
+  .wiz-step-title{font-size:27px;font-weight:700;color:var(--navy);font-family:Georgia,serif;margin:12px 0 4px;line-height:1.25}
+  .wiz-detail{font-size:17px;color:var(--ink);max-width:760px;margin:8px auto 0;line-height:1.6;text-align:left}
+  .wiz-detail .warn{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:12px 14px;font-weight:600;margin:12px 0}
+  .wiz-detail .note{background:var(--warn-bg);color:#7a5b00;border-radius:10px;padding:12px 14px;margin:12px 0}
+  .chk{list-style:none;margin:14px auto 4px;text-align:left;max-width:760px}
+  .chk li{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;margin-bottom:9px;background:var(--white);cursor:pointer;font-size:17px;user-select:none}
+  .chk li .box{flex:none;width:30px;height:30px;border:2px solid #9aa6b1;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:#fff}
+  .chk li.on{border-color:var(--ok);background:var(--ok-bg)}
+  .chk li.on .box{background:var(--ok);border-color:var(--ok)}
+  .chk li .amt{margin-left:auto;font-family:Georgia,serif;font-weight:700;font-size:20px;color:var(--navy);white-space:nowrap;padding-left:12px}
+  .chk li .per{font-size:12.5px;color:var(--grey);display:block;font-weight:400}
+  .wiz-progress{height:9px;background:var(--cream-d);border-radius:6px;overflow:hidden;margin:14px auto 4px;max-width:760px}
+  .wiz-progress div{height:100%;background:var(--gold);transition:width .25s}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
@@ -287,10 +313,10 @@ let FX = FX_DEFAULT;
 // ingredients: {name, grams, phpCost} per single bar.
 const PRODUCTS = {
   calamansi:{
-    name:"Calamansi Brightening Bar", priceCAD:0, weight:100, cure:35,
+    name:"Calamansi Brightening Bar", priceCAD:0, weight:100, cure:35, type:"cp", water:26.6, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:60, php:0},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:13.3, php:0},
       {key:"calamansi", name:"Calamansi Extract", grams:8, php:0},
       {key:"coconut_milk", name:"Coconut Milk", grams:10, php:0},
       {key:"olive_oil", name:"Olive Oil", grams:15, php:0},
@@ -309,10 +335,10 @@ const PRODUCTS = {
     ]
   },
   coconut:{
-    name:"Virgin Coconut & Lemongrass", priceCAD:0, weight:100, cure:35,
+    name:"Virgin Coconut & Lemongrass", priceCAD:0, weight:100, cure:35, type:"cp", water:26.8, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:70, php:0},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:13.4, php:0},
       {key:"castor_oil", name:"Castor Oil", grams:10, php:0},
       {key:"lemongrass_eo", name:"Lemongrass Essential Oil", grams:3, php:0},
     ],
@@ -328,10 +354,10 @@ const PRODUCTS = {
     ]
   },
   moringa:{
-    name:"Moringa & Coconut Milk", priceCAD:0, weight:100, cure:35,
+    name:"Moringa & Coconut Milk", priceCAD:0, weight:100, cure:35, type:"cp", water:25.6, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:55, php:0},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:12.8, php:0},
       {key:"coconut_milk", name:"Coconut Milk", grams:12, php:0},
       {key:"pili_oil", name:"Pili Seed Oil", grams:10, php:0},
       {key:"moringa", name:"Moringa Leaf Powder", grams:4, php:0},
@@ -349,10 +375,10 @@ const PRODUCTS = {
     ]
   },
   charcoal:{
-    name:"Charcoal & Lemongrass Detox", priceCAD:0, weight:100, cure:35,
+    name:"Charcoal & Lemongrass Detox", priceCAD:0, weight:100, cure:35, type:"cp", water:22.6, sf:5,
     ingredients:[
       {key:"coconut_oil", name:"Coconut Oil (RBD 76)", grams:65, php:0},
-      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:14, php:0},
+      {key:"lye", name:"Sodium Hydroxide (Lye)", grams:11.3, php:0},
       {key:"charcoal", name:"Activated Charcoal Powder", grams:3, php:0},
       {key:"lemongrass_eo", name:"Lemongrass Essential Oil", grams:2, php:0},
       {key:"peppermint_eo", name:"Peppermint Essential Oil", grams:1, php:0},
@@ -369,7 +395,7 @@ const PRODUCTS = {
     ]
   },
   shampoo:{
-    name:"Ylang-Ylang Shampoo Bar", priceCAD:0, weight:90, cure:49,
+    name:"Ylang-Ylang Shampoo Bar", priceCAD:0, weight:90, cure:49, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:0},
@@ -386,7 +412,7 @@ const PRODUCTS = {
     ]
   },
   teatree:{
-    name:"Tea Tree Clarifying Shampoo", priceCAD:0, weight:85, cure:14,
+    name:"Tea Tree Clarifying Shampoo", priceCAD:0, weight:85, cure:14, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:0},
@@ -404,7 +430,7 @@ const PRODUCTS = {
     ]
   },
   cocoshampoo:{
-    name:"Coconut Lemongrass Shampoo", priceCAD:0, weight:85, cure:14,
+    name:"Coconut Lemongrass Shampoo", priceCAD:0, weight:85, cure:14, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:30, php:0},
@@ -421,7 +447,7 @@ const PRODUCTS = {
     ]
   },
   charcoalshampoo:{
-    name:"Charcoal Detox Shampoo", priceCAD:0, weight:85, cure:14,
+    name:"Charcoal Detox Shampoo", priceCAD:0, weight:85, cure:14, type:"syndet",
     ingredients:[
       {key:"sci", name:"Sodium Cocoyl Isethionate", grams:45, php:0},
       {key:"coconut_oil", name:"Virgin Coconut Oil", grams:20, php:0},
@@ -541,35 +567,118 @@ function markReady(id){
    ============================================================ */
 let PRODUCTION_FOCUS=null;
 let TIMER={int:null,remain:0,stepIndex:-1,product:null};
-function setupSteps(n){ return [
-  "Confirm you're punched in. Put on PPE — goggles, gloves, apron.",
-  "Sanitize the workspace and all tools.",
-  n>1?`Masterbatch: weigh the oils & additives for ALL ${n} batches at once (${n}×${BATCH_SIZE} = ${n*BATCH_SIZE} bars).`:"Gather and weigh the oils and additives for this batch.",
-  n>1?`Measure the lye and distilled water for all ${n} batches — make ONE lye solution for the whole session.`:"Set up the lye station with ventilation; measure lye and distilled water.",
-  "Set up the lye station with good ventilation. Chill any milk or liquid ingredients the recipe needs."
-]; }
-function cleanupSteps(n){ return [
-  "Neutralize and rinse all lye-contact tools (vinegar, then water).",
-  "Wash, rinse, and dry all equipment and moulds.",
-  "Wipe down and sanitize the workspace.",
-  n>1?`Label all ${n} batches: name, batch #, pour date, cure-ready date.`:"Label the batch: name, batch #, pour date, cure-ready date.",
-  n>1?`Place all ${n} batches on the curing racks and note each rack number.`:"Place on the assigned curing rack and note the rack number."
-]; }
-function makeSteps(pk,n){
-  const base=(PRODUCTS[pk].steps||[]).map(s=>s.t);
-  if(n>1) return [`You're making ${n} batches this session (${n*BATCH_SIZE} bars). Mix one master batch to light trace, then split and pour into ${n} moulds.`].concat(base).concat([`Pour and mould all ${n} batches before moving to cleanup.`]);
-  return base;
+/* ============================================================
+   GUIDED MAKE — exact measurements, temperatures and speeds.
+   Lye is saponification-calculated at a 5% superfat
+   (NaOH factors: coconut .183, olive .1353, castor .1286, pili .136).
+   Lye solution = 2 parts distilled water : 1 part lye (33%).
+   ============================================================ */
+const OIL_KEYS=['coconut_oil','olive_oil','castor_oil','pili_oil','shea'];
+const KNEAD_KEYS=['charcoal','tea_tree_eo','peppermint_eo','lemongrass_eo','ylang_eo'];
+const TRACE_COLOUR={calamansi:'an even, pale citrus-cream colour',coconut:'an even ivory colour',moringa:'an even matcha green with no streaks',charcoal:'an even jet black with no grey streaks'};
+function fmtG(n){ return (Math.round(n*10)/10).toLocaleString('en-CA',{maximumFractionDigits:1}); }
+function sessionAmt(perBar,bars){ const t=Math.round(perBar*bars*10)/10;
+  return t>=1000 ? fmtG(t)+' g ('+(t/1000).toLocaleString('en-CA',{maximumFractionDigits:2})+' kg)' : fmtG(t)+' g'; }
+function chkRow(i,bars){ return {name:i.name, per:i.grams, amt:sessionAmt(i.grams,bars)}; }
+function buildGuide(pk,n){
+  const bars=n*BATCH_SIZE;
+  return PRODUCTS[pk].type==='syndet' ? syndetGuide(pk,n,bars) : cpGuide(pk,n,bars);
+}
+function cpGuide(pk,n,bars){
+  const P=PRODUCTS[pk];
+  const oils=P.ingredients.filter(i=>OIL_KEYS.indexOf(i.key)>=0);
+  const lye=P.ingredients.find(i=>i.key==='lye');
+  const extras=P.ingredients.filter(i=>OIL_KEYS.indexOf(i.key)<0 && i.key!=='lye');
+  const hasMilk=P.ingredients.some(i=>i.key==='coconut_milk');
+  const wetPerBar=P.ingredients.reduce((s,i)=>s+i.grams,0)+P.water;
+  const perMould=Math.round(wetPerBar*BATCH_SIZE);
+  return [
+   {name:'Setup', steps:[
+    {t:'Safety first', list:[
+      {name:'Splash goggles on'},{name:'Nitrile gloves on'},{name:'Long sleeves + apron'},{name:'Closed shoes'},
+      {name:'Fans on / windows open — good airflow'},{name:'Vinegar bottle within arm’s reach'}],
+     d:`<div class="warn">You are working with sodium hydroxide (lye). It burns skin and eyes on contact. Gear stays on until cleanup is finished. If lye touches skin: rinse under lots of running water for 15 minutes.</div>`},
+    {t:'Sanitize & stage the tools', list:[
+      {name:'Digital scale — 1 g precision, tared'},{name:'2 thermometers (one for lye, one for oils)'},
+      {name:'Lye pitcher — HDPE plastic or stainless. NEVER aluminum'},{name:'Large stainless mixing bowl'},
+      {name:'Stick blender'},{name:'2 silicone spatulas'},{name:(n>1?n+' moulds':'1 mould')+' — clean and dry'},
+      {name:'Vinegar spray + paper towels at the wash-up sink'}],
+     d:`Wipe every tool and surface with sanitizer and let air-dry. This session makes <strong>${n} batch${n>1?'es':''} — ${bars} bars</strong> of ${P.name}.`},
+    {t:'Weigh the oils', list:oils.map(i=>chkRow(i,bars)),
+     d:`Tare the melting pot, then weigh each oil into it to <strong>within ±1%</strong> of the amount shown. Tick each item only after the scale shows the right number.`},
+    {t:'Weigh lye & distilled water — separately', list:[
+      {name:'Sodium Hydroxide (lye) — dry, in its own labelled container', per:lye.grams, amt:sessionAmt(lye.grams,bars)},
+      {name:'Distilled water — in the lye pitcher', per:P.water, amt:sessionAmt(P.water,bars)}],
+     d:`<div class="warn">Weigh the lye <strong>exactly — to the gram</strong>. Too much lye makes caustic soap; this is the one measurement with zero tolerance. Two separate labelled containers. Never aluminum.</div>`},
+    {t:'Mix the lye solution', temp:'self-heats to ~90 °C — cool to 40–43 °C',
+     d:`In a ventilated spot, slowly pour the <strong>lye into the water</strong> while stirring with a silicone spatula until fully dissolved (about 1 minute).<div class="warn">Always lye INTO water — never water into lye (it can erupt). Don’t lean over the pitcher; the fumes for the first ~30 seconds are caustic.</div>The solution self-heats to about <strong>85–90 °C</strong>. Set it somewhere safe to cool to <strong>40–43 °C</strong> (30–60 min). Move to the next step while it cools.`},
+    {t:'Melt the oils & prep the extras', temp:'oils: melt at 50–55 °C, cool to 40–43 °C',
+     list:extras.length?extras.map(i=>chkRow(i,bars)):undefined,
+     d:`Melt the oils gently to <strong>50–55 °C</strong> — just until fully clear — then off the heat to cool toward <strong>40–43 °C</strong>.${extras.length?` While they cool, weigh the additions above into small cups.`:''}${hasMilk?`<div class="note">Keep the coconut milk in the fridge until the moment it’s used — cold milk won’t scorch when it meets the batter.</div>`:''}`}
+   ]},
+   {name:'Make', steps:[
+    {t:'Temperature check', temp:'both 38–43 °C', list:[
+      {name:'Lye solution reads 38–43 °C'},{name:'Oils read 38–43 °C'},{name:'The two are within 5 °C of each other'}],
+     d:`Check both thermometers. <strong>Do not combine outside 38–43 °C.</strong> Too hot = the batch can seize or volcano; too cool = false trace and soft bars. If either is hot, wait — never rush this step.`},
+    {t:'Combine', d:`Pour the lye solution <strong>slowly and steadily into the oils</strong>, aiming down the shaft of a spatula to avoid splashes. Scrape the pitcher — every gram of lye solution goes in.`},
+    {t:'Blend to light trace', d:`Stick-blender technique — <strong>bursts, not continuous</strong>:<br>• Burst <strong>3–5 seconds</strong>, then hand-stir <strong>10 seconds</strong>. Repeat.<br>• Keep the bell fully submerged; tilt it once to release trapped air.<br>• Total time to trace: <strong>2–5 minutes</strong>.<br><br><strong>Light trace</strong> = the batter looks like thin custard and a drizzle off the spatula leaves a faint line that sinks back in 1–2 seconds. Stop there.<div class="note">Don’t blend past light trace — the additions still have to go in.</div>`},
+    ...(extras.length?[{t:'Add the extras at light trace', list:extras.map(i=>chkRow(i,bars)),
+     d:`Add each item, then blend in <strong>2–3 second bursts</strong> — just enough to reach ${TRACE_COLOUR[pk]||'an even colour'}. Tick each item as it goes in.`}]:[]),
+    {t:'Pour & tap', d:`At <strong>medium trace</strong> (thick custard — a drizzle sits on the surface for a moment) pour evenly into ${n>1?'the '+n+' moulds':'the mould'} — about <strong>${perMould.toLocaleString('en-CA')} g of batter per mould</strong> (set each mould on the scale as you pour). Then lift each mould 2–3 cm and tap it down firmly <strong>3–4 times</strong> to release air bubbles.`},
+    {t:'Cover & set — 24 hours', d:hasMilk
+      ?`Lay parchment or a lid loosely on top. <div class="warn">Do NOT insulate this recipe — it contains coconut milk, and milk sugars overheat in our climate (cracks or a soap “volcano”). Leave it in the coolest, airiest spot in the workshop.</div>Leave untouched for <strong>24 hours</strong>.`
+      :`Lay parchment or a lid loosely on top and cover with a single light towel — in our warm climate that’s all the insulation it needs. Leave untouched for <strong>24 hours</strong>.`}
+   ]},
+   {name:'Cleanup', steps:[
+    {t:'Neutralize the lye tools', d:`Gloves and goggles <strong>stay on</strong>. Spray every lye-contact item — pitcher, spatulas, thermometer, mixing bowl, blender bell — with <strong>vinegar</strong>, wait one minute, then wash in hot soapy water.<div class="note">Raw soap batter stays caustic for ~48 hours. Treat every splash and drip like lye.</div>`},
+    {t:'Wash & dry everything else', d:`Wash the scale tray, cups and remaining tools in hot soapy water. Rinse and stand to dry.`},
+    {t:'Sanitize the workstation', d:`Wipe the bench, scale and handles. Sweep the floor. The station should be ready for the next maker.`},
+    {t:'Rack it & what happens next', d:`Carry the mould${n>1?'s':''} to the curing racks — rack number${n>1?'s are':' is'} assigned when you press Finish, and labels print from the <strong>Curing</strong> tab.<br><br><strong>Tomorrow (24–48 h):</strong> unmould when firm, cut each batch into <strong>${BATCH_SIZE} bars (~${P.weight} g each)</strong>, and lay them back on the rack with space between bars.<br><strong>Cure: ${P.cure} days</strong> before these bars can ship — the app tracks the date.`}
+   ]}
+  ];
+}
+function syndetGuide(pk,n,bars){
+  const P=PRODUCTS[pk];
+  const knead=P.ingredients.filter(i=>KNEAD_KEYS.indexOf(i.key)>=0 || (pk==='shampoo'&&i.key==='castor_oil'));
+  const base=P.ingredients.filter(i=>knead.indexOf(i)<0);
+  return [
+   {name:'Setup', steps:[
+    {t:'Safety first', list:[
+      {name:'N95 / dust mask on — SCI powder irritates the airways'},{name:'Goggles on'},{name:'Gloves on'},{name:'Ventilation on'}],
+     d:`<div class="warn">SCI (Sodium Cocoyl Isethionate) powder floats and irritates the lungs. The mask stays on until the powder is fully wetted into the melt.</div>No lye in this recipe — but heat and powder still demand care.`},
+    {t:'Sanitize & stage the tools', list:[
+      {name:'Double boiler (bain-marie) on the hot plate'},{name:'Digital scale — 1 g precision, tared'},
+      {name:'Thermometer'},{name:'Sturdy spatula'},{name:(n>1?n+' moulds':'1 mould')+' — clean and dry'}],
+     d:`Sanitize and dry everything. This session makes <strong>${n} batch${n>1?'es':''} — ${bars} bars</strong> of ${P.name}.`},
+    {t:'Weigh everything', list:P.ingredients.map(i=>chkRow(i,bars)),
+     d:`Weigh each item to <strong>within ±1%</strong>. Keep the essential oils in covered cups so they don’t evaporate while you work.`}
+   ]},
+   {name:'Make', steps:[
+    {t:'Melt the base', temp:'60–70 °C · never above 80 °C', list:base.map(i=>chkRow(i,bars)),
+     d:`Combine the items above in the double boiler. Hold <strong>60–70 °C</strong> — check the thermometer often and <strong>never let it pass 80 °C</strong> (SCI scorches and the oils degrade). Stir and press with the spatula for <strong>7–10 minutes</strong> until one pliable, dough-like mass forms with no dry powder left.`},
+    {t:'Cool slightly', temp:'55–60 °C', d:`Off the heat. Let the dough cool to <strong>55–60 °C</strong> (3–5 minutes, stirring). Adding fragrance hotter than this flashes off the essential oils.`},
+    {t:'Knead in the actives', list:knead.map(i=>chkRow(i,bars)),
+     d:`Add the items above and <strong>knead 3–4 minutes</strong> with gloved hands or the spatula until completely uniform — one even colour, no streaks, no oily pockets.`},
+    {t:'Press into the moulds', d:`Portion <strong>~${P.weight} g of dough per bar</strong> on the scale, then press each portion into its cavity <strong>very firmly for 30–60 seconds</strong>, from the centre outward. Weak pressing = crumbly bars. Total this session: <strong>${bars} bars</strong>.`}
+   ]},
+   {name:'Cleanup', steps:[
+    {t:'Wash while warm', d:`Wash the boiler, spatula and scale tray in hot soapy water <strong>now, while the residue is soft</strong> — set syndet dough is much harder to remove.`},
+    {t:'Sanitize the workstation', d:`Wipe the bench and handles, sweep, and reset the station for the next maker.`},
+    {t:'Rest & release', d:`Leave the moulds undisturbed for <strong>12 hours</strong>, then release the bars onto the drying rack — rack numbers are assigned when you press Finish, labels print from the <strong>Curing</strong> tab.<br><br><strong>Air-dry: ${P.cure} days</strong> before shipping — the app tracks the date.`}
+   ]}
+  ];
 }
 let WIZARD=null, WIZ_TICK=null;
-function wizPhases(){
-  const n=(WIZARD&&WIZARD.batches)||1;
-  return [["Setup",setupSteps(n)],["Make · "+PRODUCTS[WIZARD.product].name,makeSteps(WIZARD.product,n)],["Cleanup",cleanupSteps(n)]];
-}
 function startWizard(pk,count){
   count=Math.max(1,Math.min(REC_MAX_BATCHES, count||1));
-  WIZARD={product:pk, batches:count, qty:count*BATCH_SIZE, startedAt:Date.now(), phase:0, step:0, phaseStartAt:Date.now(), durations:{setup:0,make:0,cleanup:0}};
+  const P=PRODUCTS[pk];
+  let maxByStock=Infinity; P.ingredients.forEach(i=>{ const can=Math.floor((STATE.inventory[i.key]||0)/(i.grams*BATCH_SIZE)); if(can<maxByStock) maxByStock=can; });
+  if(!isFinite(maxByStock)) maxByStock=0;
+  if(maxByStock<1){ toast('Not enough ingredients for a batch — log a delivery in Inventory'); return; }
+  if(count>maxByStock){ toast('Only enough ingredients for '+maxByStock+' batch'+(maxByStock>1?'es':'')+' — starting '+maxByStock); count=maxByStock; }
+  WIZARD={product:pk, batches:count, qty:count*BATCH_SIZE, startedAt:Date.now(), phase:0, step:0, phaseStartAt:Date.now(), durations:{setup:0,make:0,cleanup:0}, checks:{}, guide:buildGuide(pk,count)};
   if(WIZ_TICK) clearInterval(WIZ_TICK); WIZ_TICK=setInterval(wizTick,1000);
-  renderProd();
+  renderProd(); window.scrollTo(0,0);
 }
 function mmss(ms){ const s=Math.max(0,Math.floor(ms/1000)); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
 function wizTick(){
@@ -579,17 +688,28 @@ function wizTick(){
 }
 function wizDone(){
   if(!WIZARD) return;
-  const steps=wizPhases()[WIZARD.phase][1];
-  if(WIZARD.step < steps.length-1){ WIZARD.step++; renderProd(); return; }
+  const steps=WIZARD.guide[WIZARD.phase].steps, st=steps[WIZARD.step];
+  if(st.list){
+    const c=WIZARD.checks[WIZARD.phase+'-'+WIZARD.step]||{};
+    if(st.list.some((x,i)=>!c[i])){ toast('Tick every item first — nothing gets skipped'); return; }
+  }
+  if(WIZARD.step < steps.length-1){ WIZARD.step++; renderProd(); window.scrollTo(0,0); return; }
   const name=["setup","make","cleanup"][WIZARD.phase];
   WIZARD.durations[name]=Math.round((Date.now()-WIZARD.phaseStartAt)/60000);
-  if(WIZARD.phase<2){ WIZARD.phase++; WIZARD.step=0; WIZARD.phaseStartAt=Date.now(); renderProd(); }
+  if(WIZARD.phase<WIZARD.guide.length-1){ WIZARD.phase++; WIZARD.step=0; WIZARD.phaseStartAt=Date.now(); renderProd(); window.scrollTo(0,0); }
   else { finishWizard(); }
 }
 function wizBack(){
   if(!WIZARD) return;
   if(WIZARD.step>0){ WIZARD.step--; }
-  else if(WIZARD.phase>0){ WIZARD.phase--; WIZARD.step=wizPhases()[WIZARD.phase][1].length-1; }
+  else if(WIZARD.phase>0){ WIZARD.phase--; WIZARD.step=WIZARD.guide[WIZARD.phase].steps.length-1; }
+  renderProd();
+}
+function wizChk(i){
+  if(!WIZARD) return;
+  const k=WIZARD.phase+'-'+WIZARD.step;
+  const c=WIZARD.checks[k]=WIZARD.checks[k]||{};
+  c[i]=!c[i];
   renderProd();
 }
 function wizCancel(){
@@ -652,8 +772,10 @@ function renderProd(){
         ${n.batches>0?`${n.batches} batch${n.batches>1?'es':''} to make`:'Caught up ✓'}</div>
       <div class="muted">${n.batches>0?`${n.needBars} bars needed for open orders`:`${n.ordered} ordered · ${n.made} made · ${n.wip} curing`}</div>
       ${canOne?'':`<p class="muted" style="color:var(--bad);margin-top:8px">Not enough ingredients for a batch — log a delivery in Inventory.</p>`}
-      <div class="no-print" style="margin-top:12px">
-        <button class="btn teal" ${canOne?'':'disabled'} onclick="startWizard('${pk}',1)">▶ Start guided make · ${BATCH_SIZE} bars</button>
+      ${canOne&&maxByStock<REC_MAX_BATCHES?`<p class="muted" style="margin-top:8px">Ingredients on hand for ${maxByStock} batch${maxByStock===1?'':'es'}.</p>`:''}
+      <div class="no-print" style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <select id="mk-n-${pk}" style="max-width:240px;flex:none;width:auto" ${canOne?'':'disabled'}>${selOpts}</select>
+        <button class="btn teal" ${canOne?'':'disabled'} onclick="startWizard('${pk}',parseInt(document.getElementById('mk-n-${pk}').value)||1)">▶ Start guided make</button>
       </div>
     </div>`;
   }).join('');
@@ -664,26 +786,41 @@ function renderProd(){
     ${cards}`;
 }
 function renderWizard(){
-  const phases=wizPhases(); const steps=phases[WIZARD.phase][1]; const stepText=steps[WIZARD.step];
-  const names=["Setup","Making","Cleanup"];
-  const dots=names.map((n,i)=>`<span class="pill ${i===WIZARD.phase?'make':(i<WIZARD.phase?'ready':'new')}" style="margin-right:6px">${n}</span>`).join('');
-  const isLast = WIZARD.phase===2 && WIZARD.step===steps.length-1;
-  const backDis = WIZARD.phase===0 && WIZARD.step===0 ? 'disabled' : '';
+  const G=WIZARD.guide, P=PRODUCTS[WIZARD.product];
+  const ph=G[WIZARD.phase], steps=ph.steps, st=steps[WIZARD.step];
+  const key=WIZARD.phase+'-'+WIZARD.step, checks=WIZARD.checks[key]||{};
+  const total=G.reduce((s,p)=>s+p.steps.length,0);
+  const done=G.slice(0,WIZARD.phase).reduce((s,p)=>s+p.steps.length,0)+WIZARD.step;
+  const isLast=WIZARD.phase===G.length-1 && WIZARD.step===steps.length-1;
+  const backDis=(WIZARD.phase===0&&WIZARD.step===0)?'disabled':'';
+  const allChecked=!st.list || st.list.every((x,i)=>checks[i]);
+  const dots=G.map((p,i)=>`<span class="pill ${i===WIZARD.phase?'make':(i<WIZARD.phase?'ready':'new')}" style="margin-right:6px">${p.name}</span>`).join('');
+  const list=st.list?`<ul class="chk">${st.list.map((it,i)=>`
+    <li class="${checks[i]?'on':''}" onclick="wizChk(${i})">
+      <span class="box">${checks[i]?'✓':''}</span>
+      <span>${it.name}${it.per!=null?`<span class="per">${fmtG(it.per)} g per bar × ${WIZARD.qty} bars</span>`:''}</span>
+      ${it.amt?`<span class="amt">${it.amt}</span>`:''}
+    </li>`).join('')}</ul>`:'';
   $('#view-prod').innerHTML=`
     <div class="page-head"><div>
-      <h2>${phases[WIZARD.phase][0]}</h2><p>${PRODUCTS[WIZARD.product].name} · ${WIZARD.batches} batch${WIZARD.batches>1?'es':''} (${WIZARD.qty} bars) &nbsp; ${dots}</p>
+      <h2>${ph.name} — ${P.name.replace(' Bar','')}</h2>
+      <p>${WIZARD.batches} batch${WIZARD.batches>1?'es':''} · ${WIZARD.qty} bars &nbsp; ${dots}</p>
     </div></div>
     <div class="card" style="text-align:center">
-      <div class="muted" style="font-size:13px;text-transform:uppercase;letter-spacing:1px">Step ${WIZARD.step+1} of ${steps.length}</div>
-      <div style="font-size:22px;font-weight:600;color:var(--navy);margin:14px auto;max-width:640px;line-height:1.45">${stepText}</div>
-      <div style="display:flex;gap:30px;justify-content:center;margin:18px 0">
-        <div><div class="muted" style="font-size:11px;text-transform:uppercase">This phase</div><div id="wizPhaseT" style="font-family:Georgia,serif;font-size:42px;color:var(--teal);font-weight:700">00:00</div></div>
-        <div><div class="muted" style="font-size:11px;text-transform:uppercase">Total</div><div id="wizTotal" style="font-family:Georgia,serif;font-size:42px;color:var(--navy);font-weight:700">00:00</div></div>
+      <div class="wiz-progress"><div style="width:${Math.round(done/total*100)}%"></div></div>
+      <div class="muted" style="font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-top:8px">Step ${done+1} of ${total}</div>
+      <div class="wiz-step-title">${st.t}</div>
+      ${st.temp?`<div class="wiz-chips"><span class="wiz-chip temp">🌡 ${st.temp}</span></div>`:''}
+      ${st.d?`<div class="wiz-detail">${st.d}</div>`:''}
+      ${list}
+      <div style="display:flex;gap:30px;justify-content:center;margin:16px 0 4px">
+        <div><div class="muted" style="font-size:11px;text-transform:uppercase">This phase</div><div id="wizPhaseT" style="font-family:Georgia,serif;font-size:40px;color:var(--teal);font-weight:700">00:00</div></div>
+        <div><div class="muted" style="font-size:11px;text-transform:uppercase">Total</div><div id="wizTotal" style="font-family:Georgia,serif;font-size:40px;color:var(--navy);font-weight:700">00:00</div></div>
       </div>
       <p class="muted" style="font-size:11px">The timer runs automatically — it can't be paused or edited.</p>
-      <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
+      <div style="display:flex;gap:12px;justify-content:center;margin-top:14px;flex-wrap:wrap">
         <button class="btn ghost" onclick="wizBack()" ${backDis}>← Back</button>
-        <button class="btn gold" style="min-width:170px" onclick="wizDone()">${isLast?'Finish — start curing':'Done — next step'}</button>
+        <button class="btn gold" style="min-width:210px" ${allChecked?'':'disabled'} onclick="wizDone()">${isLast?'Finish — start curing':'Done — next step'}</button>
       </div>
       <button class="btn ghost sm no-print" style="margin-top:14px" onclick="wizCancel()">Cancel make</button>
     </div>`;
@@ -992,7 +1129,15 @@ function mergeServerOrders(orders, sync){
   let changed=false; const byId={}; STATE.orders.forEach(o=>byId[o.id]=o);
   orders.forEach(srv=>{
     if(sync.deleted.indexOf(srv.id)!==-1) return;       // locally deleted -> don't resurrect
-    if(!byId[srv.id]){ STATE.orders.push(srv); byId[srv.id]=srv; changed=true; }
+    const cur=byId[srv.id];
+    if(!cur){ STATE.orders.push(srv); byId[srv.id]=srv; changed=true; }
+    else{
+      // server is authoritative for order fields — every edit is POSTed/PATCHed there,
+      // so status changes (shipped, make, completed stock builds) reach every device.
+      ['status','shipped','items','customer','email','address'].forEach(k=>{
+        if(srv[k]!==undefined && JSON.stringify(srv[k])!==JSON.stringify(cur[k])){ cur[k]=srv[k]; changed=true; }
+      });
+    }
   });
   return changed;
 }
@@ -1171,11 +1316,25 @@ function punchIn(w){
   const sh={id:uid(),workerId:w.id,cardId:w.cardId||'',name:w.name,in:new Date().toISOString(),out:null,mins:0};
   STATE.shifts.push(sh);
   ACTIVE={workerId:w.id,name:w.name,cardId:w.cardId||'',shiftId:sh.id};
+  try{ localStorage.setItem('kalinga:ws:active', JSON.stringify(ACTIVE)); }catch(e){}   // survive refreshes
   if(w.mgr && w.pin){ MANAGER=true; MGR_USER=w; }   // managers don't need to unlock again
   document.body.classList.add('in');
   const el=document.getElementById('activeWorker'); if(el) el.textContent='● '+w.name;
   saveState(); if(typeof pushState==='function') pushState(); renderTabs(); switchTab(START_TAB);
   toast('Welcome, '+w.name);
+}
+/* ---- refresh keeps the punched-in worker signed in ---- */
+function restoreShift(){
+  let s=null; try{ s=JSON.parse(localStorage.getItem('kalinga:ws:active')); }catch(e){}
+  if(!s||!s.shiftId) return false;
+  const sh=(STATE.shifts||[]).find(x=>x.id===s.shiftId);
+  if(!sh||sh.out){ try{ localStorage.removeItem('kalinga:ws:active'); }catch(e){} return false; }
+  ACTIVE=s;
+  const w=workerById(s.workerId);
+  if(w&&w.mgr&&w.pin){ MANAGER=true; MGR_USER=w; }
+  document.body.classList.add('in');
+  const el=document.getElementById('activeWorker'); if(el) el.textContent='● '+s.name;
+  return true;
 }
 function openPunch(){ if(!ACTIVE) return; const w=document.getElementById('punchWho'); if(w) w.textContent=ACTIVE.name+' — scan your card or confirm'; document.getElementById('punchModal').style.display='flex'; }
 function closePunch(){ document.getElementById('punchModal').style.display='none'; }
@@ -1185,6 +1344,7 @@ function confirmPunchOut(){
   if(sh){ sh.out=new Date().toISOString(); sh.mins=Math.max(0,Math.round((new Date(sh.out)-new Date(sh.in))/60000)); }
   saveState(); if(typeof pushState==='function') pushState();
   ACTIVE=null; MANAGER=false; MGR_USER=null; const w=document.getElementById('activeWorker'); if(w) w.textContent='';
+  try{ localStorage.removeItem('kalinga:ws:active'); }catch(e){}
   closePunch(); document.body.classList.remove('in'); toast('Punched out');
 }
 /* ---- worker sign-in: pick from roster + PIN (no free-text names) ---- */
@@ -1619,9 +1779,23 @@ function authErrMsg(code){
     invalid_token:'Sign-in failed — please try again.'}[code])||'Sign-in failed — please try again.';
 }
 function afterAdminLogin(d){ try{ toast('Signed in'+(d&&d.name?' — '+d.name:'')); }catch(e){} startBackendSync(); }
+/* ---- back button: confirm instead of leaving the app ---- */
+(function(){
+  let leaving=false;
+  try{ history.pushState({kn:1},''); }catch(e){ return; }
+  window.addEventListener('popstate', function(){
+    if(leaving) return;
+    try{ history.pushState({kn:1},''); }catch(e){}
+    setTimeout(function(){
+      if(confirm('Exit the workstation app? Your shift stays punched in.')){ leaving=true; history.go(-2); }
+    },30);
+  });
+})();
+
 (async function init(){
   await loadState();
   FX=parseFloat($('#fxRate').value)||FX_DEFAULT;
+  restoreShift();          // refresh keeps the signed-in worker signed in
   renderTabs();
   switchTab(START_TAB);
   startBackendSync();
